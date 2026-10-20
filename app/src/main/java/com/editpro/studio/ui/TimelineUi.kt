@@ -178,7 +178,7 @@ fun TimelinePanel(
                 state.timelineZoomPxPerSec.coerceIn(4.0, 180.0)
             }
 
-            val contentWidthDp = max(viewportWidthDp - trackHeaderWidthDp, (totalDur * effectiveScaleDpPerSec).dp)
+            val contentWidthDp = maxOf(viewportWidthDp - trackHeaderWidthDp, (totalDur * effectiveScaleDpPerSec).dp)
             val hScroll = rememberScrollState()
             val vScroll = rememberScrollState()
             val rowHeightDp = if (state.timelineCompact) 42.dp else 54.dp
