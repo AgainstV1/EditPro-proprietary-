@@ -8,6 +8,23 @@ android {
     namespace = "com.editpro.studio"
     compileSdk = 34
 
+    // Optional release signing.
+    // Set the KEYSTORE_FILE env var (plus KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD)
+    // to produce a signed release APK. The CI workflow writes these from repository
+    // secrets; locally you can export them in your shell. When they are absent the
+    // release build still succeeds and simply stays unsigned.
+    signingConfigs {
+        create("release") {
+            val ks = System.getenv("KEYSTORE_FILE")
+            if (!ks.isNullOrBlank() && file(ks).exists()) {
+                storeFile = file(ks)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.editpro.studio"
         minSdk = 26
@@ -28,6 +45,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            val ks = System.getenv("KEYSTORE_FILE")
+            if (!ks.isNullOrBlank() && file(ks).exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isMinifyEnabled = false

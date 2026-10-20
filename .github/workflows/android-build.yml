@@ -58,6 +58,30 @@ jobs:
       - name: Run JVM unit tests
         run: ./gradlew --no-daemon testDebugUnitTest
 
+      # Optional: decode a signing keystore from repository secrets so the release
+      # APK is signed with a stable key (required for updates to install over an
+      # older install). Skipped harmlessly when the secrets are not set.
+      - name: Configure release signing (optional)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KS_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            KS_PATH="$RUNNER_TEMP/release.jks"
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KS_PATH"
+            {
+              echo "KEYSTORE_FILE=$KS_PATH"
+              echo "KEYSTORE_PASSWORD=$KS_PASSWORD"
+              echo "KEY_ALIAS=$KS_ALIAS"
+              echo "KEY_PASSWORD=$KS_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Release signing configured from secrets."
+          else
+            echo "No signing secrets found — release APK will be unsigned."
+          fi
+
       - name: Build debug + release APKs
         run: ./gradlew --no-daemon assembleDebug assembleRelease
 
