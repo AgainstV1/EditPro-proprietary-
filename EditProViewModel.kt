@@ -1,0 +1,1750 @@
+package com.editpro.studio.viewmodel
+
+import android.app.Application
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.editpro.studio.media.MediaEngine
+import com.editpro.studio.media.NativeVideoExporter
+import com.editpro.studio.model.AssetKind
+import com.editpro.studio.model.AudioGearPreset
+import com.editpro.studio.model.CameraRig
+import com.editpro.studio.model.ClipFilters
+import com.editpro.studio.model.EditorSnapshot
+import com.editpro.studio.model.EquipmentRigPreset
+import com.editpro.studio.model.ExportSettings
+import com.editpro.studio.model.InspectorTab
+import com.editpro.studio.model.Keyframe
+import com.editpro.studio.model.LookPreset
+import com.editpro.studio.model.MediaAsset
+import com.editpro.studio.model.MotionKeyframeStep
+import com.editpro.studio.model.PresetCatalog
+import com.editpro.studio.model.ProjectSerializer
+import com.editpro.studio.model.ProjectSettings
+import com.editpro.studio.model.RenderJob
+import com.editpro.studio.model.ResolvedClip
+import com.editpro.studio.model.ScopesMode
+import com.editpro.studio.model.TimelineClip
+import com.editpro.studio.model.TimelineEngine
+import com.editpro.studio.model.TimelineMarker
+import com.editpro.studio.model.TimelineTrack
+import com.editpro.studio.model.TrackState
+import com.editpro.studio.model.VolumePoint
+import com.editpro.studio.model.WorkspaceMode
+import com.editpro.studio.model.formatFileSize
+import com.editpro.studio.model.formatTimecode
+import com.editpro.studio.model.generateUid
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+
+data class EditorUiState(
+    val projectName: String = "Untitled Project",
+    val saveStatus: String = "Local project · ready",
+    val projectSettings: ProjectSettings = ProjectSettings(),
+    val assets: List<MediaAsset> = emptyList(),
+    val clips: List<TimelineClip> = emptyList(),
+    val markers: List<TimelineMarker> = emptyList(),
+    val trackStates: Map<TimelineTrack, TrackState> = TimelineTrack.entries.associateWith { TrackState() },
+    val selectedAssetId: String? = null,
+    val selectedClipId: String? = null,
+    val selectedClipIds: Set<String> = emptySet(),
+    val mediaFilter: String = "all", // all, video, audio, image
+    val activeBin: String = "all",
+    val customBins: List<String> = listOf("Imported", "Favorites", "Music", "Titles & Graphics", "B-roll"),
+    val assetSearchQuery: String = "",
+    val playheadSec: Double = 0.0,
+    val durationSec: Double = 0.0,
+    val isPlaying: Boolean = false,
+    val workspaceMode: WorkspaceMode = WorkspaceMode.EDIT,
+    val activeInspectorTab: InspectorTab = InspectorTab.CLIP,
+    val fxPresetSearch: String = "",
+    val fxPresetCategory: String = "all",
+    val timelineZoomPxPerSec: Double = 75.0,
+    val timelineAutoFit: Boolean = true,
+    val timelineCompact: Boolean = false,
+    val timelineFollowPlayhead: Boolean = true,
+    val magneticSnap: Boolean = true,
+    val safeGuidesOn: Boolean = false,
+    val checkerboardOn: Boolean = false,
+    val gradeSplitOn: Boolean = false,
+    val gradeSplitPercent: Float = 50f,
+    val scopesForceOn: Boolean = false,
+    val scopesMode: ScopesMode = ScopesMode.PARADE,
+    val isLightTheme: Boolean = false,
+    val uiZoom: Float = 1.0f,
+    val leftPanelWidthDp: Float = 250f,
+    val rightPanelWidthDp: Float = 285f,
+    val timelineHeightDp: Float = 278f,
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false,
+    val copiedClipTemplate: TimelineClip? = null,
+    val customStylePresets: Map<String, ClipFilters> = emptyMap(),
+    val customMotionPresets: Map<String, List<MotionKeyframeStep>> = emptyMap(),
+    val customEquipmentRigs: Map<String, EquipmentRigPreset> = emptyMap(),
+    val customAudioGear: Map<String, AudioGearPreset> = emptyMap(),
+    val shortcuts: Map<String, String> = defaultShortcuts,
+    val exportSettings: ExportSettings = ExportSettings(),
+    val renderQueue: List<RenderJob> = emptyList(),
+    val isExporting: Boolean = false,
+    val exportProgressPct: Int = 0,
+    val exportStatusText: String = "Android Hardware Turbo encoder ready · zero external dependencies.",
+    val lastExportedFilePath: String? = null,
+    // Modals
+    val showExportModal: Boolean = false,
+    val showToolsModal: Boolean = false,
+    val showSolidModal: Boolean = false,
+    val showPresetsModal: Boolean = false,
+    val showShortcutsModal: Boolean = false,
+    val alertTitle: String? = null,
+    val alertMessage: String? = null,
+    val toastMessage: String? = null
+) {
+    val assetsById: Map<String, MediaAsset>
+        get() = assets.associateBy { it.id }
+
+    val resolvedClips: List<ResolvedClip>
+        get() = TimelineEngine.starts(clips, assetsById)
+
+    val selectedClip: TimelineClip?
+        get() = clips.find { it.id == selectedClipId }
+
+    val selectedAsset: MediaAsset?
+        get() = assets.find { it.id == selectedAssetId }
+
+    val allEquipmentRigs: Map<String, EquipmentRigPreset>
+        get() = PresetCatalog.builtinEquipmentRigs + customEquipmentRigs
+
+    val allAudioGear: Map<String, AudioGearPreset>
+        get() = PresetCatalog.builtinAudioGear + customAudioGear
+
+    companion object {
+        val defaultShortcuts: Map<String, String> = linkedMapOf(
+            "play" to "Space",
+            "split" to "s",
+            "delete" to "Delete",
+            "ripple" to "Shift+Delete",
+            "undo" to "Ctrl+z",
+            "redo" to "Ctrl+Shift+z",
+            "duplicate" to "Ctrl+d",
+            "marker" to "Ctrl+m",
+            "previous" to "ArrowLeft",
+            "next" to "ArrowRight",
+            "home" to "Home",
+            "end" to "End",
+            "autoFit" to "Ctrl+Alt+f",
+            "compact" to "Ctrl+Alt+c",
+            "snap" to "Ctrl+Alt+s",
+            "addVideo" to "v",
+            "addAudio" to "a",
+            "addImage" to "i",
+            "addText" to "t",
+            "follow" to "Ctrl+Alt+g",
+            "presets" to "Ctrl+Alt+p"
+        )
+    }
+}
+
+class EditProViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val prefs = application.getSharedPreferences("editpro_studio_prefs", Context.MODE_PRIVATE)
+    private val _uiState = MutableStateFlow(EditorUiState())
+    val uiState: StateFlow<EditorUiState> = _uiState.asStateFlow()
+
+    private val history = ArrayDeque<EditorSnapshot>()
+    private val future = ArrayDeque<EditorSnapshot>()
+    private var playbackJob: Job? = null
+    private var autosaveJob: Job? = null
+
+    init {
+        loadPersistedPreferences()
+        recoverAutosaveIfPresent()
+    }
+
+    private fun loadPersistedPreferences() {
+        val snapOn = prefs.getBoolean("magnetic_snap", true)
+        val autoFit = prefs.getBoolean("timeline_autofit", true)
+        val compact = prefs.getBoolean("timeline_compact", false)
+        val follow = prefs.getBoolean("follow_playhead", true)
+        val light = prefs.getBoolean("light_theme", false)
+        val modeId = prefs.getString("workspace_mode", "edit") ?: "edit"
+        val mode = WorkspaceMode.entries.find { it.id == modeId } ?: WorkspaceMode.EDIT
+        _uiState.update {
+            it.copy(
+                magneticSnap = snapOn,
+                timelineAutoFit = autoFit,
+                timelineCompact = compact,
+                timelineFollowPlayhead = follow,
+                isLightTheme = light,
+                workspaceMode = mode,
+                activeInspectorTab = mode.defaultInspectorTab()
+            )
+        }
+    }
+
+    private fun recoverAutosaveIfPresent() {
+        val raw = prefs.getString("filmcraft_autosave", null) ?: return
+        try {
+            val doc = ProjectSerializer.deserializeProject(raw)
+            if (doc.clips.isNotEmpty() || doc.assets.isNotEmpty()) {
+                val dur = TimelineEngine.calcProjectDuration(doc.clips, doc.assets.associateBy { it.id })
+                _uiState.update {
+                    it.copy(
+                        projectName = doc.name,
+                        projectSettings = doc.settings,
+                        assets = doc.assets,
+                        clips = doc.clips,
+                        markers = doc.markers,
+                        durationSec = dur,
+                        selectedClipId = doc.clips.firstOrNull()?.id,
+                        selectedClipIds = doc.clips.firstOrNull()?.let { c -> setOf(c.id) } ?: emptySet(),
+                        saveStatus = "Recovered autosaved project · ${doc.name}"
+                    )
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun scheduleAutosave() {
+        autosaveJob?.cancel()
+        autosaveJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(900L)
+            val s = _uiState.value
+            try {
+                val json = ProjectSerializer.serializeProject(
+                    name = s.projectName,
+                    settings = s.projectSettings,
+                    clips = s.clips,
+                    markers = s.markers,
+                    assets = s.assets
+                )
+                prefs.edit().putString("filmcraft_autosave", json).apply()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun showToast(msg: String) {
+        _uiState.update { it.copy(toastMessage = msg) }
+        viewModelScope.launch {
+            delay(3000L)
+            _uiState.update { if (it.toastMessage == msg) it.copy(toastMessage = null) else it }
+        }
+    }
+
+    fun showAlert(title: String, message: String) {
+        _uiState.update { it.copy(alertTitle = title, alertMessage = message) }
+    }
+
+    fun dismissAlert() {
+        _uiState.update { it.copy(alertTitle = null, alertMessage = null) }
+    }
+
+    // -------------------------------------------------------------------------
+    // UNDO / REDO SNAPSHOT ENGINE (60 STEPS)
+    // -------------------------------------------------------------------------
+    fun snapHistory() {
+        val s = _uiState.value
+        history.addLast(
+            EditorSnapshot(
+                clips = s.clips,
+                markers = s.markers,
+                playhead = s.playheadSec,
+                selectedClipId = s.selectedClipId,
+                projectName = s.projectName,
+                duration = s.durationSec,
+                settings = s.projectSettings
+            )
+        )
+        if (history.size > 60) history.removeFirst()
+        future.clear()
+        _uiState.update { it.copy(canUndo = history.isNotEmpty(), canRedo = false) }
+    }
+
+    fun undo() {
+        if (history.isEmpty()) return
+        val cur = _uiState.value
+        future.addLast(
+            EditorSnapshot(
+                clips = cur.clips,
+                markers = cur.markers,
+                playhead = cur.playheadSec,
+                selectedClipId = cur.selectedClipId,
+                projectName = cur.projectName,
+                duration = cur.durationSec,
+                settings = cur.projectSettings
+            )
+        )
+        val prev = history.removeLast()
+        restoreSnapshot(prev)
+        showToast("Undo")
+    }
+
+    fun redo() {
+        if (future.isEmpty()) return
+        val cur = _uiState.value
+        history.addLast(
+            EditorSnapshot(
+                clips = cur.clips,
+                markers = cur.markers,
+                playhead = cur.playheadSec,
+                selectedClipId = cur.selectedClipId,
+                projectName = cur.projectName,
+                duration = cur.durationSec,
+                settings = cur.projectSettings
+            )
+        )
+        val next = future.removeLast()
+        restoreSnapshot(next)
+        showToast("Redo")
+    }
+
+    private fun restoreSnapshot(snap: EditorSnapshot) {
+        val assetsById = _uiState.value.assetsById
+        val dur = TimelineEngine.calcProjectDuration(snap.clips, assetsById)
+        _uiState.update {
+            it.copy(
+                clips = snap.clips,
+                markers = snap.markers,
+                playheadSec = min(snap.playhead, dur),
+                selectedClipId = snap.selectedClipId,
+                selectedClipIds = snap.selectedClipId?.let { id -> setOf(id) } ?: emptySet(),
+                projectName = snap.projectName,
+                durationSec = dur,
+                projectSettings = snap.settings,
+                canUndo = history.isNotEmpty(),
+                canRedo = future.isNotEmpty()
+            )
+        }
+        scheduleAutosave()
+    }
+
+    private fun recalcAndSync(statusMsg: String? = null) {
+        _uiState.update { s ->
+            val dur = TimelineEngine.calcProjectDuration(s.clips, s.assetsById)
+            val clampedPlayhead = if (dur > 0.0) min(s.playheadSec, dur) else 0.0
+            s.copy(
+                durationSec = dur,
+                playheadSec = clampedPlayhead,
+                saveStatus = statusMsg ?: s.saveStatus
+            )
+        }
+        scheduleAutosave()
+    }
+
+    // -------------------------------------------------------------------------
+    // WORKSPACE MODES, THEME & LAYOUT
+    // -------------------------------------------------------------------------
+    fun setWorkspaceMode(mode: WorkspaceMode) {
+        prefs.edit().putString("workspace_mode", mode.id).apply()
+        _uiState.update { s ->
+            var selId = s.selectedClipId
+            if (selId == null && s.clips.isNotEmpty()) {
+                selId = if (mode == WorkspaceMode.MUSIC) {
+                    (s.clips.find { it.track.isAudio } ?: s.clips.first()).id
+                } else {
+                    (s.clips.find { it.track.isVisual } ?: s.clips.first()).id
+                }
+            }
+            s.copy(
+                workspaceMode = mode,
+                activeInspectorTab = mode.defaultInspectorTab(),
+                selectedClipId = selId,
+                selectedClipIds = selId?.let { setOf(it) } ?: emptySet()
+            )
+        }
+        showToast("${mode.label} Mode (${mode.shortcutHint})")
+    }
+
+    fun setInspectorTab(tab: InspectorTab) {
+        _uiState.update { it.copy(activeInspectorTab = tab) }
+    }
+
+    fun toggleLightTheme() {
+        val next = !_uiState.value.isLightTheme
+        prefs.edit().putBoolean("light_theme", next).apply()
+        _uiState.update { it.copy(isLightTheme = next) }
+        showToast(if (next) "☀ Light Mode On (Shortcut: Alt+L)" else "☾ Dark Mode On (Shortcut: Alt+L)")
+    }
+
+    fun toggleMagneticSnap() {
+        val next = !_uiState.value.magneticSnap
+        prefs.edit().putBoolean("magnetic_snap", next).apply()
+        _uiState.update { it.copy(magneticSnap = next) }
+        showToast(if (next) "Magnetic snapping enabled" else "Magnetic snapping disabled")
+    }
+
+    fun toggleAutoFitTimeline() {
+        val next = !_uiState.value.timelineAutoFit
+        prefs.edit().putBoolean("timeline_autofit", next).apply()
+        _uiState.update { it.copy(timelineAutoFit = next) }
+        showToast(if (next) "Auto Fit enabled" else "Manual timeline zoom enabled")
+    }
+
+    fun toggleCompactTimeline() {
+        val next = !_uiState.value.timelineCompact
+        prefs.edit().putBoolean("timeline_compact", next).apply()
+        _uiState.update { it.copy(timelineCompact = next) }
+        showToast(if (next) "Compact timeline rows enabled" else "Comfortable timeline rows enabled")
+    }
+
+    fun toggleFollowPlayhead() {
+        val next = !_uiState.value.timelineFollowPlayhead
+        prefs.edit().putBoolean("follow_playhead", next).apply()
+        _uiState.update { it.copy(timelineFollowPlayhead = next) }
+        showToast(if (next) "Playhead cursor-follow ON" else "Playhead cursor-follow OFF")
+    }
+
+    fun toggleSafeGuides() {
+        val next = !_uiState.value.safeGuidesOn
+        _uiState.update { it.copy(safeGuidesOn = next) }
+        showToast(if (next) "Safe-area guides enabled" else "Safe-area guides hidden")
+    }
+
+    fun toggleCheckerboard() {
+        val next = !_uiState.value.checkerboardOn
+        _uiState.update { it.copy(checkerboardOn = next) }
+        showToast(if (next) "Checkerboard preview background enabled" else "Preview background restored")
+    }
+
+    fun toggleGradeSplitWipe() {
+        val next = !_uiState.value.gradeSplitOn
+        _uiState.update { it.copy(gradeSplitOn = next) }
+        showToast(if (next) "Split-screen Before/After grade wipe ON" else "Split-screen grade wipe OFF")
+    }
+
+    fun setGradeSplitPercent(pct: Float) {
+        _uiState.update { it.copy(gradeSplitPercent = pct.coerceIn(5f, 95f)) }
+    }
+
+    fun toggleScopesPinned() {
+        val next = !_uiState.value.scopesForceOn
+        _uiState.update { it.copy(scopesForceOn = next) }
+        showToast(if (next) "Live RGB Scopes pinned on" else "Live RGB Scopes set to auto (Colour mode)")
+    }
+
+    fun setScopesMode(mode: ScopesMode) {
+        _uiState.update { it.copy(scopesMode = mode) }
+    }
+
+    fun setTimelineZoom(pxPerSec: Double) {
+        _uiState.update {
+            it.copy(
+                timelineAutoFit = false,
+                timelineZoomPxPerSec = pxPerSec.coerceIn(5.0, 180.0)
+            )
+        }
+    }
+
+    fun zoomToSelectedClip(viewportWidthPx: Float) {
+        val s = _uiState.value
+        val selId = s.selectedClipId ?: run {
+            showToast("Select a clip first")
+            return
+        }
+        val rc = s.resolvedClips.find { it.clip.id == selId } ?: return
+        val available = max(160f, viewportWidthPx - 150f)
+        val targetScale = (available / max(0.5, rc.duration * 1.6)).coerceIn(8.0, 180.0)
+        _uiState.update {
+            it.copy(
+                timelineAutoFit = false,
+                timelineZoomPxPerSec = targetScale
+            )
+        }
+    }
+
+    fun resizePanels(leftDeltaDp: Float = 0f, rightDeltaDp: Float = 0f, timelineDeltaDp: Float = 0f) {
+        _uiState.update {
+            it.copy(
+                leftPanelWidthDp = (it.leftPanelWidthDp + leftDeltaDp).coerceIn(150f, 420f),
+                rightPanelWidthDp = (it.rightPanelWidthDp + rightDeltaDp).coerceIn(190f, 420f),
+                timelineHeightDp = (it.timelineHeightDp + timelineDeltaDp).coerceIn(170f, 460f)
+            )
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // MEDIA LIBRARY & ASSET MANAGEMENT
+    // -------------------------------------------------------------------------
+    fun importMediaUris(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val ctx = getApplication<Application>()
+            val imported = mutableListOf<MediaAsset>()
+            for (u in uris) {
+                MediaEngine.importMediaUri(ctx, u)?.let { imported.add(it) }
+            }
+            if (imported.isNotEmpty()) {
+                _uiState.update { s ->
+                    s.copy(
+                        assets = s.assets + imported,
+                        selectedAssetId = imported.first().id,
+                        saveStatus = "${imported.size} media file(s) imported"
+                    )
+                }
+                scheduleAutosave()
+                showToast("Import ready: ${imported.size} file(s).")
+            } else {
+                showToast("No supported media found.")
+            }
+        }
+    }
+
+    fun selectAsset(assetId: String) {
+        _uiState.update { it.copy(selectedAssetId = assetId) }
+    }
+
+    fun toggleAssetFavorite(assetId: String) {
+        _uiState.update { s ->
+            s.copy(assets = s.assets.map { a -> if (a.id == assetId) a.copy(favorite = !a.favorite) else a })
+        }
+        scheduleAutosave()
+    }
+
+    fun moveAssetToBin(assetId: String, binName: String) {
+        val clean = binName.trim().ifEmpty { "Imported" }
+        _uiState.update { s ->
+            val updatedBins = if (clean in s.customBins) s.customBins else s.customBins + clean
+            s.copy(
+                customBins = updatedBins,
+                assets = s.assets.map { a ->
+                    if (a.id == assetId) a.copy(bin = clean, favorite = a.favorite || clean == "Favorites") else a
+                }
+            )
+        }
+        showToast("Asset moved to $clean")
+        scheduleAutosave()
+    }
+
+    fun addCustomBin(binName: String) {
+        val clean = binName.trim()
+        if (clean.isEmpty()) return
+        _uiState.update { s ->
+            val updated = if (clean in s.customBins) s.customBins else s.customBins + clean
+            s.copy(customBins = updated, activeBin = clean)
+        }
+        showToast("Bin '$clean' created.")
+    }
+
+    fun setMediaFilter(filter: String) {
+        _uiState.update { it.copy(mediaFilter = filter) }
+    }
+
+    fun setActiveBin(bin: String) {
+        _uiState.update { it.copy(activeBin = bin) }
+    }
+
+    fun setAssetSearchQuery(q: String) {
+        _uiState.update { it.copy(assetSearchQuery = q) }
+    }
+
+    fun setProjectName(name: String) {
+        _uiState.update { it.copy(projectName = name.ifBlank { "Untitled Project" }, saveStatus = "Project name updated") }
+        scheduleAutosave()
+    }
+
+    // -------------------------------------------------------------------------
+    // TIMELINE CLIP & TRACK EDITING OPERATIONS
+    // -------------------------------------------------------------------------
+    fun addAssetToTimeline(asset: MediaAsset, targetTrack: TimelineTrack? = null, startAtOverride: Double? = null) {
+        snapHistory()
+        val s = _uiState.value
+        val track = targetTrack ?: if (asset.kind == AssetKind.AUDIO) TimelineTrack.AUDIO else TimelineTrack.VIDEO
+        val trackEnd = s.resolvedClips.filter { it.clip.track == track }.maxOfOrNull { it.end } ?: 0.0
+        val clipStart = startAtOverride ?: trackEnd
+        val newClip = TimelineClip(
+            id = generateUid(),
+            assetId = asset.id,
+            track = track,
+            startAt = clipStart,
+            trimIn = 0.0,
+            trimOut = asset.durationSec,
+            label = asset.name,
+            scale = if (track == TimelineTrack.OVERLAY) 35.0 else 100.0
+        )
+        _uiState.update {
+            it.copy(
+                clips = it.clips + newClip,
+                selectedClipId = newClip.id,
+                selectedClipIds = setOf(newClip.id)
+            )
+        }
+        recalcAndSync("Clip added to timeline")
+        showToast("Added ${asset.name} to ${track.label}")
+    }
+
+    fun addSolidColorClip(name: String, colorHex: String, durationSec: Double) {
+        snapHistory()
+        val cleanDur = durationSec.coerceIn(0.1, 600.0)
+        val cleanName = name.trim().ifEmpty { "Solid ${colorHex.uppercase()}" }
+        val asset = MediaAsset(
+            id = generateUid(),
+            name = cleanName,
+            mimeType = "image/x-filmcraft-solid",
+            kind = AssetKind.COLOR,
+            colorHex = colorHex,
+            durationSec = cleanDur,
+            bin = "Titles & Graphics"
+        )
+        val s = _uiState.value
+        val trackEnd = s.resolvedClips.filter { it.clip.track == TimelineTrack.VIDEO }.maxOfOrNull { it.end } ?: 0.0
+        val clip = TimelineClip(
+            id = generateUid(),
+            assetId = asset.id,
+            track = TimelineTrack.VIDEO,
+            startAt = trackEnd,
+            trimIn = 0.0,
+            trimOut = cleanDur,
+            label = cleanName
+        )
+        _uiState.update {
+            it.copy(
+                assets = it.assets + asset,
+                selectedAssetId = asset.id,
+                clips = it.clips + clip,
+                selectedClipId = clip.id,
+                selectedClipIds = setOf(clip.id),
+                showSolidModal = false
+            )
+        }
+        recalcAndSync("Added solid colour clip")
+        showToast("Added $cleanName · ${cleanDur}s solid colour clip")
+    }
+
+    fun addBlankTextClip() {
+        snapHistory()
+        val s = _uiState.value
+        val clip = TimelineClip(
+            id = generateUid(),
+            assetId = null,
+            track = TimelineTrack.TEXT,
+            startAt = s.playheadSec,
+            trimIn = 0.0,
+            trimOut = 5.0,
+            text = "Edit this title",
+            fontSize = 42,
+            fontFamily = "system-ui",
+            fontWeight = 800,
+            textColor = "#ffffff",
+            textAlign = "center",
+            strokeColor = "#000000",
+            strokeWidth = 0f,
+            shadow = true,
+            label = "Text Overlay"
+        )
+        _uiState.update {
+            it.copy(
+                clips = it.clips + clip,
+                selectedClipId = clip.id,
+                selectedClipIds = setOf(clip.id),
+                activeInspectorTab = InspectorTab.CLIP
+            )
+        }
+        recalcAndSync("Text overlay added")
+        showToast("Text overlay added at ${formatTimecode(s.playheadSec)}")
+    }
+
+    fun importSrtContent(srtText: String) {
+        val cues = TimelineEngine.parseSrtToClips(srtText)
+        if (cues.isEmpty()) {
+            showToast("No valid SRT subtitle cues found.")
+            return
+        }
+        snapHistory()
+        _uiState.update { s ->
+            s.copy(
+                clips = s.clips + cues,
+                selectedClipId = cues.first().id,
+                selectedClipIds = setOf(cues.first().id)
+            )
+        }
+        recalcAndSync("Imported ${cues.size} SRT subtitle cues")
+        showToast("Imported ${cues.size} subtitle cues.")
+    }
+
+    fun selectClip(clipId: String?, additiveShift: Boolean = false) {
+        if (clipId == null) {
+            _uiState.update { it.copy(selectedClipId = null, selectedClipIds = emptySet()) }
+            return
+        }
+        _uiState.update { s ->
+            val nextSet = if (additiveShift) {
+                val mutable = s.selectedClipIds.toMutableSet()
+                if (clipId in mutable) mutable.remove(clipId) else mutable.add(clipId)
+                mutable
+            } else {
+                setOf(clipId)
+            }
+            val primary = if (clipId in nextSet) clipId else nextSet.firstOrNull()
+            s.copy(selectedClipId = primary, selectedClipIds = nextSet)
+        }
+    }
+
+    fun selectClipsByIds(ids: Set<String>) {
+        _uiState.update { s ->
+            s.copy(
+                selectedClipIds = ids,
+                selectedClipId = ids.lastOrNull()
+            )
+        }
+    }
+
+    fun updateSelectedClip(transform: (TimelineClip) -> TimelineClip) {
+        val s = _uiState.value
+        val id = s.selectedClipId ?: return
+        _uiState.update { state ->
+            state.copy(
+                clips = state.clips.map { c -> if (c.id == id) transform(c) else c }
+            )
+        }
+        recalcAndSync("Edited locally")
+    }
+
+    fun moveOrTrimClip(
+        clipId: String,
+        newTrack: TimelineTrack? = null,
+        desiredStartSec: Double? = null,
+        newTrimInSec: Double? = null,
+        newTrimOutSec: Double? = null,
+        scalePxPerSec: Double = 75.0
+    ) {
+        val s = _uiState.value
+        val target = s.clips.find { it.id == clipId } ?: return
+        if (s.trackStates[target.track]?.locked == true) {
+            showToast("This track is locked. Unlock it before editing.")
+            return
+        }
+        val asset = target.assetId?.let { s.assetsById[it] }
+        val maxOut = if (asset != null && (asset.kind == AssetKind.VIDEO || asset.kind == AssetKind.AUDIO) && !asset.durationGuess) {
+            asset.durationSec
+        } else 3600.0
+
+        val updatedTrimIn = newTrimInSec?.coerceIn(0.0, max(0.0, (newTrimOutSec ?: target.trimOut) - 0.1)) ?: target.trimIn
+        val updatedTrimOut = newTrimOutSec?.coerceIn(updatedTrimIn + 0.1, maxOut) ?: target.trimOut
+        val destTrack = newTrack ?: target.track
+        val dur = max(0.1, updatedTrimOut - updatedTrimIn)
+
+        val resolvedStart = if (desiredStartSec != null) {
+            TimelineEngine.resolveTimelineStart(
+                desired = desiredStartSec,
+                duration = dur,
+                track = destTrack,
+                clipId = clipId,
+                scalePxPerSec = scalePxPerSec,
+                direction = desiredStartSec - target.startAt,
+                allClips = s.clips,
+                assetsById = s.assetsById,
+                playhead = s.playheadSec,
+                magneticSnap = s.magneticSnap
+            )
+        } else target.startAt
+
+        _uiState.update { state ->
+            state.copy(
+                clips = state.clips.map { c ->
+                    if (c.id == clipId) {
+                        c.copy(
+                            track = destTrack,
+                            startAt = resolvedStart,
+                            trimIn = updatedTrimIn,
+                            trimOut = updatedTrimOut
+                        )
+                    } else c
+                }
+            )
+        }
+        recalcAndSync("Timeline edit changed")
+    }
+
+    fun splitAtPlayhead() {
+        val s = _uiState.value
+        val c = s.selectedClip ?: run {
+            showToast("Select a clip first")
+            return
+        }
+        val rc = s.resolvedClips.find { it.clip.id == c.id } ?: return
+        if (s.playheadSec <= rc.start + 0.05 || s.playheadSec >= rc.end - 0.05) {
+            showToast("Move playhead inside the selected clip")
+            return
+        }
+        snapHistory()
+        val cutPoint = c.trimIn + (s.playheadSec - rc.start)
+        val leftClip = c.copy(trimOut = cutPoint)
+        val rightClip = c.copy(
+            id = generateUid(),
+            startAt = s.playheadSec,
+            trimIn = cutPoint,
+            trimOut = c.trimOut,
+            label = "${c.label} (B)"
+        )
+        val nextClips = mutableListOf<TimelineClip>()
+        for (item in s.clips) {
+            if (item.id == c.id) {
+                nextClips.add(leftClip)
+                nextClips.add(rightClip)
+            } else {
+                nextClips.add(item)
+            }
+        }
+        _uiState.update {
+            it.copy(
+                clips = nextClips,
+                selectedClipId = rightClip.id,
+                selectedClipIds = setOf(rightClip.id)
+            )
+        }
+        recalcAndSync("Clip split")
+        showToast("Clip split at ${formatTimecode(s.playheadSec)}")
+    }
+
+    fun deleteSelectedClips() {
+        val s = _uiState.value
+        val idsToRemove = if (s.selectedClipIds.isNotEmpty()) s.selectedClipIds else setOfNotNull(s.selectedClipId)
+        if (idsToRemove.isEmpty()) {
+            showToast("Select a clip first")
+            return
+        }
+        snapHistory()
+        _uiState.update {
+            it.copy(
+                clips = it.clips.filterNot { c -> c.id in idsToRemove },
+                selectedClipId = null,
+                selectedClipIds = emptySet()
+            )
+        }
+        recalcAndSync("Clip deleted")
+        showToast(if (idsToRemove.size > 1) "${idsToRemove.size} clips deleted" else "Clip deleted")
+    }
+
+    fun rippleDeleteSelectedClip() {
+        val s = _uiState.value
+        val c = s.selectedClip ?: run {
+            showToast("Select a clip first")
+            return
+        }
+        val rc = s.resolvedClips.find { it.clip.id == c.id } ?: return
+        val gap = rc.duration
+        val track = c.track
+        val cutStart = rc.start
+        snapHistory()
+        val updated = s.clips.filter { it.id != c.id }.map { other ->
+            val otherStart = s.resolvedClips.find { it.clip.id == other.id }?.start ?: other.startAt
+            if (other.track == track && otherStart > cutStart + 0.001) {
+                other.copy(startAt = max(cutStart, otherStart - gap))
+            } else other
+        }
+        _uiState.update {
+            it.copy(
+                clips = updated,
+                selectedClipId = null,
+                selectedClipIds = emptySet()
+            )
+        }
+        recalcAndSync("Ripple deleted clip")
+        showToast("Deleted clip and closed the gap on ${track.label}")
+    }
+
+    fun duplicateSelectedClips() {
+        val s = _uiState.value
+        val group = if (s.selectedClipIds.size > 1) {
+            s.clips.filter { it.id in s.selectedClipIds }
+        } else {
+            listOfNotNull(s.selectedClip)
+        }
+        if (group.isEmpty()) {
+            showToast("Select a clip first")
+            return
+        }
+        snapHistory()
+        val spanShift = group.maxOf { TimelineEngine.sourceSpanDuration(it, s.assetsById) }.coerceAtLeast(0.1)
+        val copies = group.map { orig ->
+            val st = s.resolvedClips.find { it.clip.id == orig.id }?.start ?: orig.startAt
+            orig.copy(
+                id = generateUid(),
+                startAt = st + spanShift,
+                label = "${orig.label} copy"
+            )
+        }
+        _uiState.update {
+            it.copy(
+                clips = it.clips + copies,
+                selectedClipId = copies.first().id,
+                selectedClipIds = copies.map { c -> c.id }.toSet()
+            )
+        }
+        recalcAndSync("Clip duplicated")
+        showToast(if (copies.size > 1) "${copies.size} clips duplicated" else "Clip duplicated")
+    }
+
+    fun moveSelectedClipToPlayhead() {
+        val s = _uiState.value
+        val c = s.selectedClip ?: run { showToast("Select a clip first"); return }
+        snapHistory()
+        updateSelectedClip { it.copy(startAt = s.playheadSec) }
+        showToast("Clip moved to playhead")
+    }
+
+    fun nudgeSelectedClip(deltaSec: Double) {
+        val s = _uiState.value
+        val c = s.selectedClip ?: run { showToast("Select a clip first"); return }
+        val st = s.resolvedClips.find { it.clip.id == c.id }?.start ?: c.startAt
+        snapHistory()
+        updateSelectedClip { it.copy(startAt = max(0.0, st + deltaSec)) }
+    }
+
+    fun selectAdjacentClip(direction: Int) {
+        val s = _uiState.value
+        val list = s.resolvedClips
+        if (list.isEmpty()) {
+            showToast("Timeline is empty.")
+            return
+        }
+        val curIdx = list.indexOfFirst { it.clip.id == s.selectedClipId }
+        val nextIdx = if (curIdx < 0) {
+            if (direction > 0) 0 else list.lastIndex
+        } else {
+            (curIdx + direction + list.size) % list.size
+        }
+        val chosen = list[nextIdx]
+        _uiState.update {
+            it.copy(
+                selectedClipId = chosen.clip.id,
+                selectedClipIds = setOf(chosen.clip.id),
+                playheadSec = chosen.start
+            )
+        }
+        showToast("Selected ${chosen.clip.label}")
+    }
+
+    fun copySelectedClipAttributes() {
+        val c = _uiState.value.selectedClip ?: run { showToast("Select a clip first"); return }
+        _uiState.update { it.copy(copiedClipTemplate = c) }
+        showToast("Clip attributes copied")
+    }
+
+    fun pasteClipAttributesToSelected() {
+        val s = _uiState.value
+        val tpl = s.copiedClipTemplate ?: run { showToast("Copy attributes from a clip first"); return }
+        val c = s.selectedClip ?: run { showToast("Select a destination clip first"); return }
+        snapHistory()
+        updateSelectedClip {
+            it.copy(
+                scale = tpl.scale,
+                opacity = tpl.opacity,
+                rotation = tpl.rotation,
+                x = tpl.x,
+                y = tpl.y,
+                flipH = tpl.flipH,
+                flipV = tpl.flipV,
+                filters = tpl.filters,
+                rig = tpl.rig,
+                volume = tpl.volume,
+                speed = tpl.speed,
+                transition = tpl.transition,
+                transitionOut = tpl.transitionOut,
+                transitionDuration = tpl.transitionDuration,
+                fadeOut = tpl.fadeOut,
+                keyframes = tpl.keyframes
+            )
+        }
+        showToast("Clip attributes pasted")
+    }
+
+    fun resetSelectedClipEffectsAndTransform() {
+        if (_uiState.value.selectedClip == null) return
+        snapHistory()
+        updateSelectedClip {
+            it.copy(
+                filters = ClipFilters(),
+                rig = CameraRig(),
+                scale = 100.0,
+                opacity = 100.0,
+                rotation = 0.0,
+                x = 0.0,
+                y = 0.0,
+                flipH = false,
+                flipV = false,
+                keyframes = emptyList()
+            )
+        }
+        showToast("Effects and transform reset")
+    }
+
+    fun createFreezeFrameFromSelectedClip() {
+        val s = _uiState.value
+        val c = s.selectedClip ?: run { showToast("Select a video clip first"); return }
+        val asset = c.assetId?.let { s.assetsById[it] }
+        if (asset == null || asset.kind != AssetKind.VIDEO) {
+            showToast("Select a video clip to create a freeze frame")
+            return
+        }
+        val rc = s.resolvedClips.find { it.clip.id == c.id }
+        val localTime = c.trimIn + max(0.0, s.playheadSec - (rc?.start ?: 0.0))
+        viewModelScope.launch {
+            val freezeAsset = MediaEngine.extractFreezeFrameAsset(
+                context = getApplication(),
+                videoAsset = asset,
+                timeSec = localTime,
+                clipLabel = c.label
+            )
+            if (freezeAsset != null) {
+                _uiState.update { state -> state.copy(assets = state.assets + freezeAsset) }
+                showToast("Freeze-frame image added to library")
+            } else {
+                showToast("Could not extract freeze-frame from this video clip.")
+            }
+        }
+    }
+
+    fun toggleTrackLock(track: TimelineTrack) {
+        _uiState.update { s ->
+            val cur = s.trackStates[track] ?: TrackState()
+            s.copy(trackStates = s.trackStates + (track to cur.copy(locked = !cur.locked)))
+        }
+    }
+
+    fun toggleTrackHidden(track: TimelineTrack) {
+        _uiState.update { s ->
+            val cur = s.trackStates[track] ?: TrackState()
+            s.copy(trackStates = s.trackStates + (track to cur.copy(hidden = !cur.hidden)))
+        }
+    }
+
+    fun toggleTrackMute(track: TimelineTrack) {
+        _uiState.update { s ->
+            val cur = s.trackStates[track] ?: TrackState()
+            s.copy(trackStates = s.trackStates + (track to cur.copy(muted = !cur.muted)))
+        }
+    }
+
+    fun toggleTrackSolo(track: TimelineTrack) {
+        _uiState.update { s ->
+            val cur = s.trackStates[track] ?: TrackState()
+            s.copy(trackStates = s.trackStates + (track to cur.copy(solo = !cur.solo)))
+        }
+    }
+
+    fun isTrackAudible(track: TimelineTrack): Boolean {
+        val states = _uiState.value.trackStates
+        val ts = states[track] ?: return true
+        if (ts.muted || ts.hidden) return false
+        val anySolo = listOf(TimelineTrack.AUDIO, TimelineTrack.AUDIO2).any { states[it]?.solo == true }
+        return !anySolo || ts.solo
+    }
+
+    // -------------------------------------------------------------------------
+    // KEYFRAMES, MOTION PRESETS, COLOUR LOOKS, CAMERA RIGS & AUDIO GEAR
+    // -------------------------------------------------------------------------
+    fun addOrUpdateKeyframeAtPlayhead() {
+        val s = _uiState.value
+        val c = s.selectedClip ?: return
+        val rc = s.resolvedClips.find { it.clip.id == c.id } ?: return
+        val localT = ((s.playheadSec - rc.start).coerceIn(0.0, rc.duration) * 1000.0).roundToInt() / 1000.0
+        val anim = TimelineEngine.animatedProps(c, localT)
+        snapHistory()
+        val filtered = c.keyframes.filter { abs(it.time - localT) >= 0.08 }
+        val newKf = Keyframe(
+            time = localT,
+            scale = anim.scale,
+            opacity = anim.opacity,
+            rotation = anim.rotation,
+            x = anim.x,
+            y = anim.y,
+            filters = anim.filters
+        )
+        updateSelectedClip { it.copy(keyframes = (filtered + newKf).sortedBy { k -> k.time }) }
+        showToast("Keyframe set at ${formatTimecode(s.playheadSec)}")
+    }
+
+    fun removeKeyframeAtIndex(index: Int) {
+        val c = _uiState.value.selectedClip ?: return
+        if (index !in c.keyframes.indices) return
+        snapHistory()
+        val updated = c.keyframes.toMutableList().apply { removeAt(index) }
+        updateSelectedClip { it.copy(keyframes = updated) }
+    }
+
+    fun clearKeyframesOnSelectedClip() {
+        if (_uiState.value.selectedClip == null) return
+        snapHistory()
+        updateSelectedClip { it.copy(keyframes = emptyList()) }
+    }
+
+    fun applyLookPreset(preset: LookPreset) {
+        if (_uiState.value.selectedClip == null) {
+            showToast("Select a clip first")
+            return
+        }
+        snapHistory()
+        updateSelectedClip { it.copy(filters = preset.filters) }
+        showToast("Applied ${preset.title} look")
+    }
+
+    fun applyMotionPreset(presetName: String) {
+        val s = _uiState.value
+        val c = s.selectedClip ?: run { showToast("Select a timeline clip first."); return }
+        val dur = TimelineEngine.sourceSpanDuration(c, s.assetsById)
+        snapHistory()
+        val customSteps = s.customMotionPresets[presetName]
+        val updated = if (customSteps != null) {
+            val baseScale = c.scale / 100.0
+            val kfs = customSteps.map { st ->
+                Keyframe(
+                    time = (st.timeSec * dur * 1000.0).roundToInt() / 1000.0,
+                    scale = (st.scale ?: 100.0) * baseScale,
+                    opacity = st.opacity ?: c.opacity,
+                    rotation = st.rotation ?: c.rotation,
+                    x = c.x + (st.x ?: 0.0),
+                    y = c.y + (st.y ?: 0.0),
+                    filters = c.filters
+                )
+            }
+            c.copy(keyframes = kfs)
+        } else {
+            PresetCatalog.applyMotionToClip(c, presetName, dur)
+        }
+        updateSelectedClip { updated }
+        showToast("Applied motion: $presetName")
+    }
+
+    fun applyEquipmentRig(name: String) {
+        val s = _uiState.value
+        val rigPreset = s.allEquipmentRigs[name] ?: return
+        val c = s.selectedClip ?: run { showToast("Select a clip first"); return }
+        val dur = TimelineEngine.sourceSpanDuration(c, s.assetsById)
+        snapHistory()
+        updateSelectedClip { cur ->
+            var next = cur.copy(
+                scale = rigPreset.scale,
+                filters = rigPreset.filters ?: cur.filters,
+                rig = rigPreset.rig,
+                equipmentName = name
+            )
+            if (rigPreset.motionPresetName != null) {
+                next = PresetCatalog.applyMotionToClip(next, rigPreset.motionPresetName, dur)
+            }
+            next
+        }
+        showToast("Applied equipment rig: $name")
+    }
+
+    fun applyAudioGearPreset(name: String) {
+        val s = _uiState.value
+        val gear = s.allAudioGear[name] ?: return
+        if (s.selectedClip == null) { showToast("Select a clip first"); return }
+        snapHistory()
+        updateSelectedClip {
+            it.copy(
+                audioEq = gear.eq,
+                audioComp = gear.comp,
+                audioPan = gear.pan,
+                audioDeess = gear.deess,
+                audioReverb = gear.reverb,
+                volume = gear.volume,
+                audioPresetName = name
+            )
+        }
+        showToast("Applied audio gear: $name")
+    }
+
+    fun addVolumeAutomationPointAtPlayhead() {
+        val s = _uiState.value
+        val c = s.selectedClip ?: return
+        val rc = s.resolvedClips.find { it.clip.id == c.id } ?: return
+        val local = (s.playheadSec - rc.start).coerceIn(0.0, rc.duration)
+        snapHistory()
+        val filtered = c.volumeKeyframes.filter { abs(it.time - local) >= 0.05 }
+        val updated = (filtered + VolumePoint(time = local, value = 100.0)).sortedBy { it.time }
+        updateSelectedClip { it.copy(volumeKeyframes = updated) }
+        showToast("Volume automation point added at ${"%.2f".format(local)}s")
+    }
+
+    fun updateVolumeAutomationPoint(index: Int, value: Double) {
+        val c = _uiState.value.selectedClip ?: return
+        if (index !in c.volumeKeyframes.indices) return
+        val updated = c.volumeKeyframes.toMutableList().apply {
+            this[index] = this[index].copy(value = value.coerceIn(0.0, 200.0))
+        }
+        updateSelectedClip { it.copy(volumeKeyframes = updated) }
+    }
+
+    fun removeVolumeAutomationPoint(index: Int) {
+        val c = _uiState.value.selectedClip ?: return
+        if (index !in c.volumeKeyframes.indices) return
+        val updated = c.volumeKeyframes.toMutableList().apply { removeAt(index) }
+        updateSelectedClip { it.copy(volumeKeyframes = updated) }
+    }
+
+    fun clearVolumeAutomation() {
+        updateSelectedClip { it.copy(volumeKeyframes = emptyList()) }
+        showToast("Volume automation cleared")
+    }
+
+    fun detectBeatsOnSelectedClip() {
+        val s = _uiState.value
+        val c = s.selectedClip ?: run { showToast("Select an audio or video clip first"); return }
+        val rc = s.resolvedClips.find { it.clip.id == c.id } ?: return
+        val asset = c.assetId?.let { s.assetsById[it] }
+        snapHistory()
+        val beatMarkers = MediaEngine.detectAudioBeats(
+            asset = asset,
+            clipStartSec = rc.start,
+            trimInSec = c.trimIn,
+            clipDurationSec = rc.duration
+        )
+        _uiState.update { it.copy(markers = (it.markers + beatMarkers).sortedBy { m -> m.time }) }
+        showToast("Added ${beatMarkers.size} beat markers to timeline")
+    }
+
+    // -------------------------------------------------------------------------
+    // MARKERS & TRANSPORT PLAYBACK
+    // -------------------------------------------------------------------------
+    fun addMarkerAtPlayhead(customLabel: String? = null) {
+        snapHistory()
+        val s = _uiState.value
+        val label = customLabel?.trim()?.takeIf { it.isNotEmpty() } ?: "Marker ${s.markers.size + 1}"
+        val next = (s.markers + TimelineMarker(time = s.playheadSec, label = label)).sortedBy { it.time }
+        _uiState.update { it.copy(markers = next) }
+        showToast("Marker added at ${formatTimecode(s.playheadSec)}")
+    }
+
+    fun jumpToMarker(direction: Int) {
+        val s = _uiState.value
+        val sorted = s.markers.sortedBy { it.time }
+        val target = if (direction < 0) {
+            sorted.lastOrNull { it.time < s.playheadSec - 0.02 }
+        } else {
+            sorted.firstOrNull { it.time > s.playheadSec + 0.02 }
+        }
+        if (target == null) {
+            showToast(if (direction < 0) "No earlier marker." else "No later marker.")
+            return
+        }
+        seekTo(target.time)
+    }
+
+    fun seekTo(timeSec: Double) {
+        val s = _uiState.value
+        val clamped = timeSec.coerceIn(0.0, max(0.0, s.durationSec))
+        _uiState.update { it.copy(playheadSec = clamped) }
+    }
+
+    fun togglePlayPause() {
+        val s = _uiState.value
+        if (s.isPlaying) {
+            pausePlayback()
+            return
+        }
+        if (s.durationSec <= 0.0) {
+            showToast("Add clips to the timeline first")
+            return
+        }
+        if (s.playheadSec >= s.durationSec - 0.02) {
+            _uiState.update { it.copy(playheadSec = 0.0) }
+        }
+        _uiState.update { it.copy(isPlaying = true) }
+        playbackJob?.cancel()
+        playbackJob = viewModelScope.launch {
+            var lastMs = System.currentTimeMillis()
+            while (isActive && _uiState.value.isPlaying) {
+                delay(16L) // ~60fps frame ticker
+                val now = System.currentTimeMillis()
+                val dt = ((now - lastMs) / 1000.0).coerceIn(0.0, 0.1)
+                lastMs = now
+                val cur = _uiState.value
+                val nextTime = cur.playheadSec + dt
+                if (nextTime >= cur.durationSec) {
+                    _uiState.update { it.copy(playheadSec = cur.durationSec, isPlaying = false) }
+                    break
+                } else {
+                    _uiState.update { it.copy(playheadSec = nextTime) }
+                }
+            }
+        }
+    }
+
+    fun pausePlayback() {
+        playbackJob?.cancel()
+        _uiState.update { it.copy(isPlaying = false) }
+    }
+
+    // -------------------------------------------------------------------------
+    // 1-CLICK PRO DEMO REEL GENERATOR
+    // -------------------------------------------------------------------------
+    fun loadProDemoReel() {
+        snapHistory()
+        viewModelScope.launch(Dispatchers.IO) {
+            val ctx = getApplication<Application>()
+            val mediaDir = File(ctx.filesDir, "media").apply { mkdirs() }
+            val img1File = MediaEngine.createSyntheticDemoImageFile(
+                File(mediaDir, "demo_scene01.png"),
+                "SCENE 01 · ARRI ALEXA LF",
+                "#102542",
+                "#f87060"
+            )
+            val img2File = MediaEngine.createSyntheticDemoImageFile(
+                File(mediaDir, "demo_scene02.png"),
+                "SCENE 02 · ANAMORPHIC NIGHT",
+                "#1b1438",
+                "#00a896"
+            )
+            val pipFile = MediaEngine.createSyntheticDemoImageFile(
+                File(mediaDir, "demo_broll_pip.png"),
+                "B-ROLL · DRONE HUD",
+                "#2d3142",
+                "#ef8354"
+            )
+            val wavFile = MediaEngine.createSyntheticAudioWavFile(
+                File(mediaDir, "demo_synth_score.wav"),
+                durationSec = 6
+            )
+
+            val a1 = MediaAsset(
+                id = generateUid(), name = "Scene01_AlexaLF.png", mimeType = "image/png",
+                kind = AssetKind.IMAGE, sizeBytes = img1File.length(), durationSec = 3.0,
+                localPath = img1File.absolutePath, bin = "Imported", favorite = true
+            )
+            val a2 = MediaAsset(
+                id = generateUid(), name = "Scene02_Anamorphic.png", mimeType = "image/png",
+                kind = AssetKind.IMAGE, sizeBytes = img2File.length(), durationSec = 3.0,
+                localPath = img2File.absolutePath, bin = "Imported", favorite = false
+            )
+            val a3 = MediaAsset(
+                id = generateUid(), name = "BRoll_Overlay.png", mimeType = "image/png",
+                kind = AssetKind.IMAGE, sizeBytes = pipFile.length(), durationSec = 3.0,
+                localPath = pipFile.absolutePath, bin = "B-roll", favorite = false
+            )
+            val a4 = MediaAsset(
+                id = generateUid(), name = "Cinema_Synth_Score.wav", mimeType = "audio/wav",
+                kind = AssetKind.AUDIO, sizeBytes = wavFile.length(), durationSec = 6.0,
+                localPath = wavFile.absolutePath, bin = "Music", favorite = true,
+                waveformPeaks = MediaEngine.extractAudioWaveformPeaks(wavFile, 240)
+            )
+
+            val c1 = TimelineClip(
+                id = generateUid(), assetId = a1.id, track = TimelineTrack.VIDEO,
+                startAt = 0.0, trimIn = 0.0, trimOut = 3.0,
+                filters = ClipFilters(brightness = 102.0, contrast = 116.0, saturation = 108.0, temperature = 12.0, tint = 2.0, sharpen = 18.0, vignette = 20.0, grain = 10.0, liftR = 0.0, liftG = 2.0, liftB = 5.0, gammaR = 3.0, gammaG = 1.0, gammaB = -2.0, gainR = 6.0, gainG = 2.0, gainB = -4.0),
+                rig = CameraRig(shutter = 180.0, aberration = 1.0, anamorphic = 12.0),
+                equipmentName = "ARRI Alexa Mini LF · Cooke S4 35mm",
+                scale = 105.0,
+                keyframes = listOf(
+                    Keyframe(time = 0.0, scale = 100.0, opacity = 100.0, rotation = 0.0, x = -2.0, y = 0.0),
+                    Keyframe(time = 3.0, scale = 114.0, opacity = 100.0, rotation = 0.0, x = 2.0, y = 0.0)
+                ),
+                label = "Scene 01 · Alexa LF", transition = "fade", transitionDuration = 0.45
+            )
+            val c2 = TimelineClip(
+                id = generateUid(), assetId = a2.id, track = TimelineTrack.VIDEO,
+                startAt = 3.0, trimIn = 0.0, trimOut = 3.0,
+                filters = ClipFilters(brightness = 98.0, contrast = 124.0, saturation = 115.0, temperature = -14.0, tint = 8.0, sharpen = 22.0, vignette = 24.0, grain = 14.0),
+                rig = CameraRig(tiltX = 4.0, swivelY = -8.0, shutter = 200.0, aberration = 2.0, anamorphic = 18.0),
+                equipmentName = "RED V-Raptor 8K · Atlas Orion 2x Anamorphic",
+                scale = 108.0,
+                keyframes = listOf(
+                    Keyframe(time = 0.0, scale = 118.0, opacity = 100.0, rotation = -2.0, x = 4.0, y = 0.0),
+                    Keyframe(time = 3.0, scale = 102.0, opacity = 100.0, rotation = 0.0, x = 0.0, y = 0.0)
+                ),
+                label = "Scene 02 · Anamorphic", transition = "dissolve", transitionDuration = 0.5
+            )
+            val cPip = TimelineClip(
+                id = generateUid(), assetId = a3.id, track = TimelineTrack.OVERLAY,
+                startAt = 1.2, trimIn = 0.0, trimOut = 2.6,
+                filters = ClipFilters(brightness = 104.0, contrast = 110.0, saturation = 105.0),
+                rig = CameraRig(tiltX = 6.0, swivelY = 10.0),
+                cornerRadius = 12, blendMode = "screen",
+                opacity = 92.0, scale = 36.0, x = 26.0, y = -22.0,
+                label = "HUD B-Roll PiP", transition = "fade"
+            )
+            val cTxt = TimelineClip(
+                id = generateUid(), assetId = null, track = TimelineTrack.TEXT,
+                startAt = 0.3, trimIn = 0.0, trimOut = 4.8,
+                text = "EDITPRO STUDIO 2.0\nCOLOUR · MOTION · MUSIC",
+                fontSize = 38, fontFamily = "system-ui", fontWeight = 800,
+                textColor = "#ffffff", textAlign = "center", verticalPosition = "bottom",
+                strokeColor = "#000000", strokeWidth = 1f, shadow = true,
+                label = "Main Title Card"
+            )
+            val cAud = TimelineClip(
+                id = generateUid(), assetId = a4.id, track = TimelineTrack.AUDIO,
+                startAt = 0.0, trimIn = 0.0, trimOut = 6.0,
+                volume = 106.0, fadeInAudio = 0.4, fadeOutAudio = 0.8,
+                audioEq = listOf(4.0, 2.0, 1.0, 3.0, 4.5),
+                audioComp = 48.0, audioDeess = 20.0, audioReverb = 14.0,
+                audioPresetName = "SSL 4000G Master Bus Glue",
+                volumeKeyframes = listOf(
+                    VolumePoint(0.0, 95.0),
+                    VolumePoint(3.0, 110.0),
+                    VolumePoint(6.0, 90.0)
+                ),
+                label = "Cinema Synth Score"
+            )
+
+            withContext(Dispatchers.Main) {
+                _uiState.update { s ->
+                    val nextAssets = s.assets + listOf(a1, a2, a3, a4)
+                    val nextClips = listOf(c1, c2, cPip, cTxt, cAud)
+                    s.copy(
+                        assets = nextAssets,
+                        clips = nextClips,
+                        markers = listOf(
+                            TimelineMarker(0.0, "Intro Cut"),
+                            TimelineMarker(1.5, "Beat Drop"),
+                            TimelineMarker(3.0, "Scene 02 Transition")
+                        ),
+                        selectedClipId = c1.id,
+                        selectedClipIds = setOf(c1.id),
+                        playheadSec = 0.8,
+                        durationSec = 6.0,
+                        saveStatus = "Pro Demo Reel loaded"
+                    )
+                }
+                scheduleAutosave()
+                showToast("Pro Demo Reel loaded! Switch between Normal, Colour, Motion & Music modes.")
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // PROJECT HEALTH, FRAME CAPTURE, PROJECT PERSISTENCE & EXPORT
+    // -------------------------------------------------------------------------
+    fun runProjectHealthScan() {
+        val s = _uiState.value
+        val issues = mutableListOf<String>()
+        val missing = s.clips.count { it.assetId != null && !s.assetsById.containsKey(it.assetId) }
+        val zeroDur = s.clips.count { TimelineEngine.clipDuration(it, s.assetsById) <= 0.0 }
+        val hasMainVisual = s.clips.any { it.track == TimelineTrack.VIDEO && it.assetId != null && s.assetsById.containsKey(it.assetId) }
+        val largeAssets = s.assets.count { it.sizeBytes > 500L * 1024L * 1024L }
+
+        if (missing > 0) issues.add("$missing clip(s) reference missing media")
+        if (zeroDur > 0) issues.add("$zeroDur clip(s) have invalid duration")
+        if (!hasMainVisual) issues.add("No main VIDEO 1 visual clip; MP4 export recommends one")
+        if (largeAssets > 0) issues.add("$largeAssets source file(s) exceed 500 MB")
+        if (issues.isEmpty()) issues.add("No project-structure problems found")
+
+        val report = buildString {
+            issues.forEach { appendLine("• $it") }
+            appendLine()
+            append("Media: ${s.assets.size} · Timeline clips: ${s.clips.size} · Duration: ${formatTimecode(s.durationSec)}")
+        }
+        showAlert("FILMCRAFT PROJECT HEALTH", report)
+    }
+
+    fun clearTimeline() {
+        if (_uiState.value.clips.isEmpty()) {
+            showToast("Timeline is already empty.")
+            return
+        }
+        snapHistory()
+        _uiState.update {
+            it.copy(
+                clips = emptyList(),
+                markers = emptyList(),
+                selectedClipId = null,
+                selectedClipIds = emptySet(),
+                playheadSec = 0.0,
+                durationSec = 0.0
+            )
+        }
+        scheduleAutosave()
+        showToast("Timeline cleared; media library preserved")
+    }
+
+    fun startNewProject() {
+        snapHistory()
+        _uiState.update {
+            it.copy(
+                projectName = "Untitled Project",
+                clips = emptyList(),
+                markers = emptyList(),
+                selectedClipId = null,
+                selectedClipIds = emptySet(),
+                playheadSec = 0.0,
+                durationSec = 0.0,
+                saveStatus = "New project created"
+            )
+        }
+        scheduleAutosave()
+        showToast("New project created. Your imported media remains in the library.")
+    }
+
+    fun exportProjectJson(): String {
+        val s = _uiState.value
+        return ProjectSerializer.serializeProject(
+            name = s.projectName,
+            settings = s.projectSettings,
+            clips = s.clips,
+            markers = s.markers,
+            assets = s.assets
+        )
+    }
+
+    fun openProjectJson(rawJson: String) {
+        try {
+            val doc = ProjectSerializer.deserializeProject(rawJson)
+            snapHistory()
+            val mergedAssets = (_uiState.value.assets + doc.assets).distinctBy { it.id }
+            val dur = TimelineEngine.calcProjectDuration(doc.clips, mergedAssets.associateBy { it.id })
+            _uiState.update {
+                it.copy(
+                    projectName = doc.name,
+                    projectSettings = doc.settings,
+                    assets = mergedAssets,
+                    clips = doc.clips,
+                    markers = doc.markers,
+                    durationSec = dur,
+                    playheadSec = 0.0,
+                    selectedClipId = doc.clips.firstOrNull()?.id,
+                    selectedClipIds = doc.clips.firstOrNull()?.let { c -> setOf(c.id) } ?: emptySet(),
+                    saveStatus = "Project opened · ${doc.name}"
+                )
+            }
+            showToast("Project opened: ${doc.name}")
+        } catch (e: Exception) {
+            showToast("Could not open project: ${e.message}")
+        }
+    }
+
+    fun saveCurrentClipAsStylePreset(name: String) {
+        val c = _uiState.value.selectedClip ?: run { showToast("Select a timeline clip first."); return }
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        _uiState.update { it.copy(customStylePresets = it.customStylePresets + (clean to c.filters)) }
+        showToast("Saved style preset: $clean")
+    }
+
+    fun saveCurrentClipAsMotionPreset(name: String) {
+        val s = _uiState.value
+        val c = s.selectedClip ?: return
+        if (c.keyframes.isEmpty()) { showToast("Add keyframes first"); return }
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        val dur = max(0.1, TimelineEngine.sourceSpanDuration(c, s.assetsById))
+        val baseScale = c.scale / 100.0
+        val steps = c.keyframes.map { k ->
+            MotionKeyframeStep(
+                timeSec = k.time / dur,
+                scale = k.scale / baseScale,
+                opacity = k.opacity,
+                rotation = k.rotation,
+                x = k.x,
+                y = k.y
+            )
+        }
+        _uiState.update { it.copy(customMotionPresets = it.customMotionPresets + (clean to steps)) }
+        showToast("Saved motion preset: $clean")
+    }
+
+    fun saveCurrentClipAsEquipmentRig(name: String) {
+        val c = _uiState.value.selectedClip ?: run { showToast("Select a clip first"); return }
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        val rig = EquipmentRigPreset(
+            name = clean,
+            category = "custom",
+            scale = c.scale,
+            filters = c.filters,
+            rig = c.rig
+        )
+        _uiState.update { it.copy(customEquipmentRigs = it.customEquipmentRigs + (clean to rig)) }
+        showToast("Saved equipment rig: $clean")
+    }
+
+    fun hotImportPresetBundleJson(rawJson: String) {
+        try {
+            val obj = JSONObject(rawJson)
+            var count = 0
+            val newStyles = _uiState.value.customStylePresets.toMutableMap()
+            obj.optJSONObject("styles")?.let { stylesObj ->
+                for (key in stylesObj.keys()) {
+                    val item = stylesObj.optJSONObject(key)
+                    val filterJson = item?.optJSONObject("style")?.optJSONObject("filters") ?: item?.optJSONObject("filters")
+                    if (filterJson != null) {
+                        newStyles[key] = ProjectSerializer.jsonToFilters(filterJson)
+                        count++
+                    }
+                }
+            }
+            val newEq = _uiState.value.customEquipmentRigs.toMutableMap()
+            obj.optJSONObject("equipment")?.let { eqObj ->
+                for (key in eqObj.keys()) {
+                    val item = eqObj.optJSONObject(key) ?: continue
+                    newEq[key] = EquipmentRigPreset(
+                        name = key,
+                        category = item.optString("category", "custom"),
+                        scale = item.optDouble("scale", 100.0),
+                        filters = item.optJSONObject("filters")?.let { ProjectSerializer.jsonToFilters(it) },
+                        rig = ProjectSerializer.jsonToRig(item.optJSONObject("rig"))
+                    )
+                    count++
+                }
+            }
+            val newAud = _uiState.value.customAudioGear.toMutableMap()
+            obj.optJSONObject("audioPresets")?.let { audObj ->
+                for (key in audObj.keys()) {
+                    val item = audObj.optJSONObject(key) ?: continue
+                    val eqArr = item.optJSONArray("eq")
+                    val eqList = if (eqArr != null && eqArr.length() == 5) {
+                        (0 until 5).map { eqArr.optDouble(it, 0.0) }
+                    } else listOf(0.0, 0.0, 0.0, 0.0, 0.0)
+                    newAud[key] = AudioGearPreset(
+                        name = key,
+                        eq = eqList,
+                        comp = item.optDouble("comp", 0.0),
+                        pan = item.optDouble("pan", 0.0),
+                        deess = item.optDouble("deess", 0.0),
+                        reverb = item.optDouble("reverb", 0.0),
+                        volume = item.optDouble("volume", 100.0)
+                    )
+                    count++
+                }
+            }
+            _uiState.update {
+                it.copy(
+                    customStylePresets = newStyles,
+                    customEquipmentRigs = newEq,
+                    customAudioGear = newAud
+                )
+            }
+            showToast("Hot-imported $count preset & equipment item(s) live!")
+        } catch (e: Exception) {
+            showToast("Invalid preset pack JSON: ${e.message}")
+        }
+    }
+
+    fun loadBuiltinExpansionPack() {
+        val packJson = """
+        {
+          "format": "editpro-preset-bundle",
+          "version": 2,
+          "styles": {
+            "Kodak 2383 Print Film": {"style":{"filters":{"brightness":98,"contrast":122,"saturation":94,"temperature":12,"tint":4,"vignette":22,"grain":24,"liftR":-2,"liftB":6,"gainR":8,"gainB":-4}}},
+            "Fuji Eterna 250D Soft": {"style":{"filters":{"brightness":103,"contrast":96,"saturation":90,"temperature":-4,"tint":-8,"vignette":14,"grain":16}}},
+            "Oppenheimer IMAX B&W": {"style":{"filters":{"brightness":96,"contrast":148,"saturation":0,"sharpen":32,"vignette":28,"grain":22}}},
+            "Dune Arrakis Spice Gold": {"style":{"filters":{"brightness":102,"contrast":126,"saturation":88,"temperature":44,"tint":8,"vignette":26,"sharpen":20}}}
+          },
+          "equipment": {
+            "ARRI Alexa 65 · Prime DNA 50mm": {"category":"cinema","scale":104,"filters":{"brightness":100,"contrast":118,"saturation":96,"temperature":4,"vignette":18,"sharpen":24},"rig":{"tiltX":0,"swivelY":0,"shutter":180,"aberration":1,"anamorphic":0}},
+            "Sony FX3 · Sirui Saturn Anamorphic": {"category":"cinema","scale":108,"filters":{"brightness":99,"contrast":116,"saturation":110,"temperature":-8,"tint":6,"vignette":20},"rig":{"tiltX":0,"swivelY":0,"shutter":180,"aberration":2.5,"anamorphic":20}},
+            "VHS 1994 Camcorder Deck": {"category":"vintage","scale":104,"filters":{"brightness":104,"contrast":112,"saturation":128,"temperature":10,"tint":16,"grain":48,"blur":0.8},"rig":{"tiltX":0,"swivelY":0,"shutter":120,"aberration":6,"anamorphic":0}}
+          },
+          "audioPresets": {
+            "Dolby Atmos Cinema Dialogue": {"eq":[-4,2,4.5,3.5,2.5],"comp":58,"pan":0,"deess":42,"reverb":12,"volume":112},
+            "808 Trap Sub & Crisp Hats": {"eq":[8.5,2,-3,3.5,7],"comp":64,"pan":0,"deess":15,"reverb":8,"volume":108},
+            "Warm Vinyl Documentary Bed": {"eq":[-2,3.5,1,-2,-5],"comp":34,"pan":0,"deess":20,"reverb":16,"volume":92}
+          }
+        }
+        """.trimIndent()
+        hotImportPresetBundleJson(packJson)
+    }
+
+    // -------------------------------------------------------------------------
+    // EXPORT & RENDER QUEUE
+    // -------------------------------------------------------------------------
+    fun updateExportSettings(transform: (ExportSettings) -> ExportSettings) {
+        _uiState.update { it.copy(exportSettings = transform(it.exportSettings)) }
+    }
+
+    fun setExportRangePointAtPlayhead(isInPoint: Boolean) {
+        val t = (_uiState.value.playheadSec * 100.0).roundToInt() / 100.0
+        updateExportSettings { cur ->
+            if (isInPoint) cur.copy(rangeInSec = t) else cur.copy(rangeOutSec = t)
+        }
+        showToast("${if (isInPoint) "In" else "Out"} point set to ${formatTimecode(t)}")
+    }
+
+    fun queueCurrentExport() {
+        val s = _uiState.value
+        val job = RenderJob(
+            name = s.projectName,
+            clips = s.clips,
+            markers = s.markers,
+            settings = s.exportSettings
+        )
+        _uiState.update { it.copy(renderQueue = it.renderQueue + job) }
+        showToast("Current project added to render queue (${_uiState.value.renderQueue.size})")
+    }
+
+    fun startExportNow() {
+        val s = _uiState.value
+        if (s.isExporting) return
+        pausePlayback()
+        _uiState.update { it.copy(isExporting = true, exportProgressPct = 1) }
+        viewModelScope.launch {
+            val result = NativeVideoExporter.exportProjectToMp4(
+                context = getApplication(),
+                projectName = s.projectName,
+                clips = s.clips,
+                assetsById = s.assetsById,
+                trackStates = s.trackStates,
+                settings = s.exportSettings,
+                onProgress = { pct, msg ->
+                    _uiState.update { it.copy(exportProgressPct = pct, exportStatusText = msg) }
+                }
+            )
+            _uiState.update {
+                it.copy(
+                    isExporting = false,
+                    exportProgressPct = if (result.success) 100 else 0,
+                    exportStatusText = result.message,
+                    lastExportedFilePath = result.outputFile?.absolutePath
+                )
+            }
+            showToast(result.message)
+        }
+    }
+
+    fun runRenderQueue() {
+        val queue = _uiState.value.renderQueue
+        if (queue.isEmpty() || _uiState.value.isExporting) return
+        _uiState.update { it.copy(renderQueue = emptyList(), isExporting = true) }
+        viewModelScope.launch {
+            val s = _uiState.value
+            for ((index, job) in queue.withIndex()) {
+                NativeVideoExporter.exportProjectToMp4(
+                    context = getApplication(),
+                    projectName = "${job.name}_render${index + 1}",
+                    clips = job.clips,
+                    assetsById = s.assetsById,
+                    trackStates = s.trackStates,
+                    settings = job.settings,
+                    onProgress = { pct, msg ->
+                        _uiState.update {
+                            it.copy(
+                                exportProgressPct = pct,
+                                exportStatusText = "Job ${index + 1}/${queue.size}: $msg"
+                            )
+                        }
+                    }
+                )
+            }
+            _uiState.update { it.copy(isExporting = false, exportProgressPct = 100) }
+            showToast("Render queue finished: ${queue.size} job(s) processed.")
+        }
+    }
+
+    // Modal visibility helpers
+    fun setShowExportModal(show: Boolean) = _uiState.update { it.copy(showExportModal = show) }
+    fun setShowToolsModal(show: Boolean) = _uiState.update { it.copy(showToolsModal = show) }
+    fun setShowSolidModal(show: Boolean) = _uiState.update { it.copy(showSolidModal = show) }
+    fun setShowPresetsModal(show: Boolean) = _uiState.update { it.copy(showPresetsModal = show) }
+    fun setShowShortcutsModal(show: Boolean) = _uiState.update { it.copy(showShortcutsModal = show) }
+}
