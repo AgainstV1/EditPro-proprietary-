@@ -1,0 +1,91 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Locate project (works for full repo OR a single uploaded .zip)
+        id: locate
+        run: |
+          if [ -f settings.gradle.kts ]; then
+            DIR="."
+          else
+            ZIP=$(find . -maxdepth 1 -name '*.zip' | head -1)
+            if [ -z "$ZIP" ]; then
+              echo "No project found. Upload the project files or the .zip to the repo root."
+              exit 1
+            fi
+            echo "Unzipping $ZIP"
+            mkdir -p _src
+            unzip -q -o "$ZIP" -d _src
+            SETTINGS=$(find _src -name settings.gradle.kts | head -1)
+            DIR=$(dirname "$SETTINGS")
+          fi
+          echo "Project dir: $DIR"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Build debug APK
+        working-directory: ${{ steps.locate.outputs.dir }}
+        run: gradle assembleDebug --stacktrace --no-daemon 2>&1 | tee build.log
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp "${{ steps.locate.outputs.dir }}"/app/build/outputs/apk/debug/*.apk out/EditPro-debug.apk
+          ls -la out
+
+      - name: Upload APK (workflow artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: EditPro-APK
+          path: out/EditPro-debug.apk
+
+      - name: Publish APK to Releases (direct download)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          files: out/EditPro-debug.apk
+
+      - name: Show errors in summary (only if build failed)
+        if: failure()
+        run: |
+          {
+            echo "## Build errors"
+            echo '```'
+            grep -E "^e: |error:|What went wrong|FAILED|Could not " -A3 "${{ steps.locate.outputs.dir }}/build.log" | head -100
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload full log (only if build failed)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ steps.locate.outputs.dir }}/build.log
