@@ -1,0 +1,31 @@
+# Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local SDK path (machine-specific — never commit)
+local.properties
+
+# Signing material (never commit real keystores / secrets)
+*.jks
+*.keystore
+keystore.properties
+
+# Build outputs
+*.apk
+*.aab
+*.ap_
+*.dex
+output.json
+
+# Logs
+*.log
