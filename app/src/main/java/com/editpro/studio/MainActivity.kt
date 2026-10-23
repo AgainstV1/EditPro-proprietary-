@@ -417,7 +417,8 @@ fun EditProWorkspaceScreen(
                 onQueueExport = viewModel::queueCurrentExport,
                 onRunQueue = viewModel::runRenderQueue,
                 onOpenExport = { path -> openExportedFile(context, path) },
-                onShareExport = { path -> shareExportedFile(context, path) }
+                onShareExport = { path -> shareExportedFile(context, path) },
+                onCancelExport = viewModel::cancelExport
             )
         }
 

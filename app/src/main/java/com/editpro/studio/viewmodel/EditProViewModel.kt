@@ -37,8 +37,10 @@ import com.editpro.studio.model.WorkspaceMode
 import com.editpro.studio.model.formatFileSize
 import com.editpro.studio.model.formatTimecode
 import com.editpro.studio.model.generateUid
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -176,6 +178,7 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
     private val future = ArrayDeque<EditorSnapshot>()
     private var playbackJob: Job? = null
     private var autosaveJob: Job? = null
+    private var exportJob: Job? = null
 
     init {
         loadPersistedPreferences()
@@ -1687,61 +1690,123 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
         showToast("Current project added to render queue (${_uiState.value.renderQueue.size})")
     }
 
+    /** Stops an in-flight render (or render queue). The partial MP4 is left in the cache
+     *  and is overwritten by the next render, which deletes any existing output first. */
+    fun cancelExport() {
+        if (!_uiState.value.isExporting) return
+        exportJob?.cancel()
+    }
+
     fun startExportNow() {
         val s = _uiState.value
         if (s.isExporting) return
         pausePlayback()
-        _uiState.update { it.copy(isExporting = true, exportProgressPct = 1) }
-        viewModelScope.launch {
-            val result = NativeVideoExporter.exportProjectToMp4(
-                context = getApplication(),
-                projectName = s.projectName,
-                clips = s.clips,
-                assetsById = s.assetsById,
-                trackStates = s.trackStates,
-                settings = s.exportSettings,
-                onProgress = { pct, msg ->
-                    _uiState.update { it.copy(exportProgressPct = pct, exportStatusText = msg) }
-                }
-            )
-            _uiState.update {
-                it.copy(
-                    isExporting = false,
-                    exportProgressPct = if (result.success) 100 else 0,
-                    exportStatusText = result.message,
-                    lastExportedFilePath = result.outputFile?.absolutePath
+        _uiState.update {
+            it.copy(isExporting = true, exportProgressPct = 1, exportStatusText = "Starting render…")
+        }
+        exportJob = viewModelScope.launch {
+            try {
+                val result = NativeVideoExporter.exportProjectToMp4(
+                    context = getApplication(),
+                    projectName = s.projectName,
+                    clips = s.clips,
+                    assetsById = s.assetsById,
+                    trackStates = s.trackStates,
+                    settings = s.exportSettings,
+                    onProgress = { pct, msg ->
+                        _uiState.update { it.copy(exportProgressPct = pct, exportStatusText = msg) }
+                    }
                 )
+                _uiState.update {
+                    it.copy(
+                        isExporting = false,
+                        exportProgressPct = if (result.success) 100 else 0,
+                        exportStatusText = result.message,
+                        // Keep the previous delivered file if this render did not produce one.
+                        lastExportedFilePath = result.outputFile?.absolutePath ?: it.lastExportedFilePath
+                    )
+                }
+                showToast(result.message)
+            } catch (ce: CancellationException) {
+                // The render was cancelled: always clear the busy flag so the UI cannot get stuck.
+                withContext(NonCancellable) {
+                    _uiState.update {
+                        it.copy(
+                            isExporting = false,
+                            exportProgressPct = 0,
+                            exportStatusText = "Export cancelled."
+                        )
+                    }
+                    showToast("Export cancelled.")
+                }
+                throw ce
+            } finally {
+                exportJob = null
             }
-            showToast(result.message)
         }
     }
 
     fun runRenderQueue() {
         val queue = _uiState.value.renderQueue
         if (queue.isEmpty() || _uiState.value.isExporting) return
-        _uiState.update { it.copy(renderQueue = emptyList(), isExporting = true) }
-        viewModelScope.launch {
-            val s = _uiState.value
-            for ((index, job) in queue.withIndex()) {
-                NativeVideoExporter.exportProjectToMp4(
-                    context = getApplication(),
-                    projectName = "${job.name}_render${index + 1}",
-                    clips = job.clips,
-                    assetsById = s.assetsById,
-                    trackStates = s.trackStates,
-                    settings = job.settings,
-                    onProgress = { pct, msg ->
-                        _uiState.update {
-                            it.copy(
-                                exportProgressPct = pct,
-                                exportStatusText = "Job ${index + 1}/${queue.size}: $msg"
-                            )
+        _uiState.update {
+            it.copy(renderQueue = emptyList(), isExporting = true, exportProgressPct = 1)
+        }
+        exportJob = viewModelScope.launch {
+            try {
+                val s = _uiState.value
+                var succeeded = 0
+                var failed = 0
+                var lastPath: String? = null
+                for ((index, job) in queue.withIndex()) {
+                    val result = NativeVideoExporter.exportProjectToMp4(
+                        context = getApplication(),
+                        projectName = "${job.name}_render${index + 1}",
+                        clips = job.clips,
+                        assetsById = s.assetsById,
+                        trackStates = s.trackStates,
+                        settings = job.settings,
+                        onProgress = { pct, msg ->
+                            _uiState.update {
+                                it.copy(
+                                    exportProgressPct = pct,
+                                    exportStatusText = "Job ${index + 1}/${queue.size}: $msg"
+                                )
+                            }
                         }
+                    )
+                    if (result.success) {
+                        succeeded++
+                        lastPath = result.outputFile?.absolutePath
+                    } else {
+                        failed++
                     }
-                )
+                }
+                val summary = "Render queue finished: $succeeded succeeded, $failed failed."
+                _uiState.update {
+                    it.copy(
+                        isExporting = false,
+                        exportProgressPct = 100,
+                        exportStatusText = summary,
+                        lastExportedFilePath = lastPath ?: it.lastExportedFilePath
+                    )
+                }
+                showToast(summary)
+            } catch (ce: CancellationException) {
+                withContext(NonCancellable) {
+                    _uiState.update {
+                        it.copy(
+                            isExporting = false,
+                            exportProgressPct = 0,
+                            exportStatusText = "Render queue cancelled."
+                        )
+                    }
+                    showToast("Render queue cancelled.")
+                }
+                throw ce
+            } finally {
+                exportJob = null
             }
-            _uiState.update { it.copy(isExporting = false, exportProgressPct = 100) }
-            showToast("Render queue finished: ${queue.size} job(s) processed.")
         }
     }
 

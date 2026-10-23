@@ -230,6 +230,9 @@ object NativeVideoExporter {
                 outputFile = outputFile,
                 message = "Exported ${outputFile.name} ($sizeKb KB)"
             )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Cooperative cancellation must propagate, not be reported as a render failure.
+            throw e
         } catch (e: Exception) {
             ExportResult(
                 success = false,

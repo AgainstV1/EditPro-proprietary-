@@ -902,7 +902,8 @@ fun ExportVideoDialog(
     onQueueExport: () -> Unit,
     onRunQueue: () -> Unit,
     onOpenExport: (String) -> Unit = {},
-    onShareExport: (String) -> Unit = {}
+    onShareExport: (String) -> Unit = {},
+    onCancelExport: () -> Unit = {}
 ) {
     val palette = LocalEditProPalette.current
     val es = state.exportSettings
@@ -1022,12 +1023,21 @@ fun ExportVideoDialog(
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 InspectorActionButton("Close", modifier = Modifier.width(90.dp), onClick = onDismiss)
                 Spacer(modifier = Modifier.width(8.dp))
-                InspectorActionButton(
-                    text = if (state.isExporting) "Rendering…" else "Render MP4",
-                    isPrimary = true,
-                    modifier = Modifier.width(130.dp),
-                    onClick = onStartExport
-                )
+                if (state.isExporting) {
+                    // One action at a time: while rendering, the primary button becomes Cancel.
+                    InspectorActionButton(
+                        text = "Cancel export",
+                        modifier = Modifier.width(130.dp),
+                        onClick = onCancelExport
+                    )
+                } else {
+                    InspectorActionButton(
+                        text = "Render MP4",
+                        isPrimary = true,
+                        modifier = Modifier.width(130.dp),
+                        onClick = onStartExport
+                    )
+                }
             }
         }
     }
