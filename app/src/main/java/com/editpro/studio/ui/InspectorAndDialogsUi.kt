@@ -1287,3 +1287,37 @@ fun AlertSheetDialog(
         }
     }
 }
+
+/**
+ * Two-button confirmation used before an action that would discard the current
+ * timeline (New / Open / Load demo).
+ */
+@Composable
+fun ConfirmDialog(
+    title: String,
+    message: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = LocalEditProPalette.current
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(palette.panel)
+                .border(0.5.dp, palette.line, RoundedCornerShape(14.dp))
+                .padding(18.dp)
+        ) {
+            Text(title, color = palette.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(message, color = palette.muted, fontSize = 12.5.sp)
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                InspectorActionButton("Cancel", modifier = Modifier.width(96.dp), onClick = onDismiss)
+                Spacer(modifier = Modifier.width(8.dp))
+                InspectorActionButton(confirmLabel, isPrimary = true, modifier = Modifier.width(140.dp), onClick = onConfirm)
+            }
+        }
+    }
+}

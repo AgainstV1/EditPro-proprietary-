@@ -69,6 +69,7 @@ import com.editpro.studio.model.WorkspaceMode
 import com.editpro.studio.model.formatFileSize
 import com.editpro.studio.model.formatTimecode
 import com.editpro.studio.ui.AlertSheetDialog
+import com.editpro.studio.ui.ConfirmDialog
 import com.editpro.studio.ui.EditProStudioTheme
 import com.editpro.studio.ui.EditingToolsDialog
 import com.editpro.studio.ui.ExportVideoDialog
@@ -83,6 +84,7 @@ import com.editpro.studio.ui.SolidColorClipDialog
 import com.editpro.studio.ui.TimelinePanel
 import com.editpro.studio.viewmodel.EditProViewModel
 import com.editpro.studio.viewmodel.EditorUiState
+import com.editpro.studio.viewmodel.PendingConfirm
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -119,8 +121,20 @@ fun EditProWorkspaceScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
-                viewModel.openProjectJson(reader.readText())
+            val read = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }
+            val text = read.getOrNull()
+            when {
+                read.isFailure -> viewModel.showAlert(
+                    "OPEN FAILED",
+                    "The project file could not be read. ${read.exceptionOrNull()?.message ?: ""}".trim()
+                )
+                text.isNullOrBlank() -> viewModel.showAlert(
+                    "OPEN FAILED",
+                    "The selected file is empty or unreadable."
+                )
+                else -> viewModel.openProjectJson(text)
             }
         }
     }
@@ -129,10 +143,23 @@ fun EditProWorkspaceScreen(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         if (uri != null) {
-            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { writer ->
-                writer.write(viewModel.exportProjectJson())
+            val failure = runCatching {
+                val stream = context.contentResolver.openOutputStream(uri)
+                    ?: throw IllegalStateException("The chosen file could not be opened for writing.")
+                stream.bufferedWriter().use { writer ->
+                    writer.write(viewModel.exportProjectJson())
+                    writer.flush()
+                }
+            }.exceptionOrNull()
+            // Success is reported only once the write has actually completed without error.
+            if (failure == null) {
+                viewModel.showToast("Project saved to ${uri.lastPathSegment ?: "file"}")
+            } else {
+                viewModel.showAlert(
+                    "SAVE FAILED",
+                    "The project was not saved. ${failure.message ?: "Unknown error."}"
+                )
             }
-            viewModel.showToast("Project saved to ${uri.lastPathSegment ?: "file"}")
         }
     }
 
@@ -140,8 +167,13 @@ fun EditProWorkspaceScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
-                viewModel.importSrtContent(reader.readText())
+            val text = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull()
+            if (text.isNullOrBlank()) {
+                viewModel.showAlert("IMPORT FAILED", "The subtitle file could not be read.")
+            } else {
+                viewModel.importSrtContent(text)
             }
         }
     }
@@ -150,14 +182,22 @@ fun EditProWorkspaceScreen(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
         if (uri != null) {
-            val json = ProjectSerializer.exportPresetBundleJson(
-                customStyles = state.customStylePresets,
-                customMotions = state.customMotionPresets,
-                customEquipment = state.customEquipmentRigs,
-                customAudioGear = state.customAudioGear
-            )
-            context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(json) }
-            viewModel.showToast("Exported Universal Preset & Equipment Pack JSON.")
+            val failure = runCatching {
+                val json = ProjectSerializer.exportPresetBundleJson(
+                    customStyles = state.customStylePresets,
+                    customMotions = state.customMotionPresets,
+                    customEquipment = state.customEquipmentRigs,
+                    customAudioGear = state.customAudioGear
+                )
+                val stream = context.contentResolver.openOutputStream(uri)
+                    ?: throw IllegalStateException("The chosen file could not be opened for writing.")
+                stream.bufferedWriter().use { it.write(json) }
+            }.exceptionOrNull()
+            if (failure == null) {
+                viewModel.showToast("Exported Universal Preset & Equipment Pack JSON.")
+            } else {
+                viewModel.showAlert("EXPORT FAILED", failure.message ?: "Unknown error.")
+            }
         }
     }
 
@@ -211,12 +251,21 @@ fun EditProWorkspaceScreen(
                 state = state,
                 onProjectNameChange = viewModel::setProjectName,
                 onSelectMode = viewModel::setWorkspaceMode,
-                onNewProject = viewModel::startNewProject,
-                onLoadDemoReel = viewModel::loadProDemoReel,
+                onNewProject = {
+                    if (viewModel.hasWorkToDiscard()) viewModel.requestConfirm(PendingConfirm.NEW_PROJECT)
+                    else viewModel.startNewProject()
+                },
+                onLoadDemoReel = {
+                    if (viewModel.hasWorkToDiscard()) viewModel.requestConfirm(PendingConfirm.DEMO_REEL)
+                    else viewModel.loadProDemoReel()
+                },
                 onOpenPresets = { viewModel.setShowPresetsModal(true) },
                 onOpenTools = { viewModel.setShowToolsModal(true) },
-                onSaveProject = { saveProjectLauncher.launch("${state.projectName.replace(" ", "_")}.filmcraft") },
-                onOpenProject = { openProjectLauncher.launch(arrayOf("*/*")) },
+                onSaveProject = { saveProjectLauncher.launch("${sanitizeFileName(state.projectName)}.filmcraft") },
+                onOpenProject = {
+                    if (viewModel.hasWorkToDiscard()) viewModel.requestConfirm(PendingConfirm.OPEN_PROJECT)
+                    else openProjectLauncher.launch(arrayOf("*/*"))
+                },
                 onOpenExport = { viewModel.setShowExportModal(true) }
             )
 
@@ -428,6 +477,32 @@ fun EditProWorkspaceScreen(
                 title = state.alertTitle,
                 message = state.alertMessage,
                 onDismiss = viewModel::dismissAlert
+            )
+        }
+
+        state.pendingConfirm?.let { action ->
+            ConfirmDialog(
+                title = when (action) {
+                    PendingConfirm.NEW_PROJECT -> "START A NEW PROJECT?"
+                    PendingConfirm.OPEN_PROJECT -> "OPEN ANOTHER PROJECT?"
+                    PendingConfirm.DEMO_REEL -> "LOAD THE DEMO REEL?"
+                },
+                message = "Your current timeline will be replaced. Imported media stays in the library, " +
+                    "and an autosave of the current edit is kept, so nothing is silently lost.",
+                confirmLabel = when (action) {
+                    PendingConfirm.NEW_PROJECT -> "Start new"
+                    PendingConfirm.OPEN_PROJECT -> "Open project"
+                    PendingConfirm.DEMO_REEL -> "Load demo"
+                },
+                onConfirm = {
+                    viewModel.clearConfirm()
+                    when (action) {
+                        PendingConfirm.NEW_PROJECT -> viewModel.startNewProject()
+                        PendingConfirm.OPEN_PROJECT -> openProjectLauncher.launch(arrayOf("*/*"))
+                        PendingConfirm.DEMO_REEL -> viewModel.loadProDemoReel()
+                    }
+                },
+                onDismiss = viewModel::clearConfirm
             )
         }
 
@@ -768,6 +843,11 @@ private fun MediaLibraryPanel(
             }
         }
     }
+}
+
+private fun sanitizeFileName(raw: String): String {
+    val cleaned = raw.trim().replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_', '.')
+    return cleaned.take(60).ifEmpty { "Untitled_Project" }
 }
 
 // ---------------------------------------------------------------------------

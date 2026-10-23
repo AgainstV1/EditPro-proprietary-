@@ -55,6 +55,9 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+/** An action that would discard the current timeline and therefore asks first. */
+enum class PendingConfirm { NEW_PROJECT, OPEN_PROJECT, DEMO_REEL }
+
 data class EditorUiState(
     val projectName: String = "Untitled Project",
     val saveStatus: String = "Local project · ready",
@@ -115,7 +118,8 @@ data class EditorUiState(
     val showShortcutsModal: Boolean = false,
     val alertTitle: String? = null,
     val alertMessage: String? = null,
-    val toastMessage: String? = null
+    val toastMessage: String? = null,
+    val pendingConfirm: PendingConfirm? = null
 ) {
     val assetsById: Map<String, MediaAsset>
         get() = assets.associateBy { it.id }
@@ -1747,4 +1751,21 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
     fun setShowSolidModal(show: Boolean) = _uiState.update { it.copy(showSolidModal = show) }
     fun setShowPresetsModal(show: Boolean) = _uiState.update { it.copy(showPresetsModal = show) }
     fun setShowShortcutsModal(show: Boolean) = _uiState.update { it.copy(showShortcutsModal = show) }
+
+    // -------------------------------------------------------------------------
+    // DESTRUCTIVE-ACTION GUARD
+    // New / Open / Load-demo all replace the timeline, so they ask first whenever
+    // there is real work on it. The choice is held as an enum (never a lambda) so
+    // it survives recomposition cleanly.
+    // -------------------------------------------------------------------------
+    fun hasWorkToDiscard(): Boolean =
+        _uiState.value.clips.isNotEmpty() || _uiState.value.markers.isNotEmpty()
+
+    fun requestConfirm(action: PendingConfirm) {
+        _uiState.update { it.copy(pendingConfirm = action) }
+    }
+
+    fun clearConfirm() {
+        _uiState.update { it.copy(pendingConfirm = null) }
+    }
 }
