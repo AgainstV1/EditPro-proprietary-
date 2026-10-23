@@ -834,10 +834,14 @@ private fun MediaLibraryPanel(
                             )
                         }
                         Text(
-                            text = "${asset.kind.id.uppercase()} · ${formatTimecode(asset.durationSec)} · ${formatFileSize(asset.sizeBytes)}",
-                            color = palette.muted,
+                            text = buildString {
+                                append("${asset.kind.id.uppercase()} · ${formatTimecode(asset.durationSec)} · ${formatFileSize(asset.sizeBytes)}")
+                                if (asset.localPath == null) append("  ·  ⚠ not stored locally")
+                            },
+                            color = if (asset.localPath == null) palette.orange else palette.muted,
                             fontSize = 9.5.sp,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }

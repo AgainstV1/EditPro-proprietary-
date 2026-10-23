@@ -495,22 +495,68 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
         if (uris.isEmpty()) return
         viewModelScope.launch {
             val ctx = getApplication<Application>()
-            val imported = mutableListOf<MediaAsset>()
+            val existing = _uiState.value.assets
+            val added = mutableListOf<MediaAsset>()
+            val duplicates = mutableListOf<String>()
+            val failed = mutableListOf<String>()
+
+            // A duplicate is the same display name AND the same byte size AND the same
+            // duration. Two genuinely different files that merely share a filename will
+            // not match, so nothing distinct is ever dropped.
+            fun isDuplicateOf(asset: MediaAsset, other: MediaAsset): Boolean =
+                other.name == asset.name &&
+                    other.sizeBytes == asset.sizeBytes &&
+                    abs(other.durationSec - asset.durationSec) < 0.05
+
             for (u in uris) {
-                MediaEngine.importMediaUri(ctx, u)?.let { imported.add(it) }
+                val asset = MediaEngine.importMediaUri(ctx, u)
+                if (asset == null) {
+                    failed.add(u.lastPathSegment ?: "unknown file")
+                    continue
+                }
+                if (existing.any { isDuplicateOf(asset, it) } || added.any { isDuplicateOf(asset, it) }) {
+                    duplicates.add(asset.name)
+                    // Drop the copy that was just made so no orphan file is left behind.
+                    asset.localPath?.let { p -> runCatching { File(p).delete() } }
+                    continue
+                }
+                added.add(asset)
             }
-            if (imported.isNotEmpty()) {
+
+            if (added.isNotEmpty()) {
                 _uiState.update { s ->
                     s.copy(
-                        assets = s.assets + imported,
-                        selectedAssetId = imported.first().id,
-                        saveStatus = "${imported.size} media file(s) imported"
+                        assets = s.assets + added,
+                        selectedAssetId = added.first().id,
+                        saveStatus = "${added.size} media file(s) imported"
                     )
                 }
                 scheduleAutosave()
-                showToast("Import ready: ${imported.size} file(s).")
-            } else {
-                showToast("No supported media found.")
+            }
+
+            val summary = buildList {
+                if (added.isNotEmpty()) add("${added.size} imported")
+                if (duplicates.isNotEmpty()) add("${duplicates.size} duplicate(s) skipped")
+                if (failed.isNotEmpty()) add("${failed.size} unreadable")
+            }
+            when {
+                summary.isEmpty() -> showToast("No supported media found.")
+                duplicates.isEmpty() && failed.isEmpty() -> showToast("Import ready: ${added.size} file(s).")
+                else -> {
+                    showToast(summary.joinToString(" · "))
+                    showAlert(
+                        "IMPORT SUMMARY",
+                        buildString {
+                            appendLine("Imported: ${added.size}")
+                            if (duplicates.isNotEmpty()) {
+                                appendLine("Already in the library (skipped): ${duplicates.joinToString(", ").take(200)}")
+                            }
+                            if (failed.isNotEmpty()) {
+                                appendLine("Could not be read: ${failed.joinToString(", ").take(200)}")
+                            }
+                        }.trim()
+                    )
+                }
             }
         }
     }
@@ -1440,8 +1486,15 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
         val zeroDur = s.clips.count { TimelineEngine.clipDuration(it, s.assetsById) <= 0.0 }
         val hasMainVisual = s.clips.any { it.track == TimelineTrack.VIDEO && it.assetId != null && s.assetsById.containsKey(it.assetId) }
         val largeAssets = s.assets.count { it.sizeBytes > 500L * 1024L * 1024L }
+        // Media is referenced by path, not embedded in the project file, so a project moved
+        // between devices can point at files that are no longer there.
+        val missingFiles = s.assets.count { a ->
+            val p = a.localPath
+            p != null && !File(p).exists()
+        }
 
         if (missing > 0) issues.add("$missing clip(s) reference missing media")
+        if (missingFiles > 0) issues.add("$missingFiles media file(s) are no longer on this device — re-import them")
         if (zeroDur > 0) issues.add("$zeroDur clip(s) have invalid duration")
         if (!hasMainVisual) issues.add("No main VIDEO 1 visual clip; MP4 export recommends one")
         if (largeAssets > 0) issues.add("$largeAssets source file(s) exceed 500 MB")
