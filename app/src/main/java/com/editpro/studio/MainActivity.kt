@@ -1,6 +1,11 @@
 package com.editpro.studio
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -56,6 +61,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.editpro.studio.model.AssetKind
 import com.editpro.studio.model.MediaAsset
 import com.editpro.studio.model.ProjectSerializer
@@ -77,6 +83,7 @@ import com.editpro.studio.ui.SolidColorClipDialog
 import com.editpro.studio.ui.TimelinePanel
 import com.editpro.studio.viewmodel.EditProViewModel
 import com.editpro.studio.viewmodel.EditorUiState
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -359,7 +366,9 @@ fun EditProWorkspaceScreen(
                 onUpdateSettings = viewModel::updateExportSettings,
                 onStartExport = viewModel::startExportNow,
                 onQueueExport = viewModel::queueCurrentExport,
-                onRunQueue = viewModel::runRenderQueue
+                onRunQueue = viewModel::runRenderQueue,
+                onOpenExport = { path -> openExportedFile(context, path) },
+                onShareExport = { path -> shareExportedFile(context, path) }
             )
         }
 
@@ -758,5 +767,58 @@ private fun MediaLibraryPanel(
                 }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EXPORTED FILE DELIVERY
+// Hands the rendered MP4 to the system through the app's existing FileProvider so
+// the user can open it in a player or share/save it. The provider authority is
+// declared in AndroidManifest.xml as "${applicationId}.fileprovider", and
+// res/xml/file_paths.xml already exposes the cache "exports/" directory.
+// ---------------------------------------------------------------------------
+
+private fun exportedFileUri(context: Context, path: String): Uri? {
+    val file = File(path)
+    if (!file.exists()) return null
+    return try {
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun openExportedFile(context: Context, path: String) {
+    val uri = exportedFileUri(context, path)
+    if (uri == null) {
+        Toast.makeText(context, "Exported file is no longer available.", Toast.LENGTH_LONG).show()
+        return
+    }
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "video/mp4")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    try {
+        context.startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, "No app found that can play this video.", Toast.LENGTH_LONG).show()
+    }
+}
+
+private fun shareExportedFile(context: Context, path: String) {
+    val uri = exportedFileUri(context, path)
+    if (uri == null) {
+        Toast.makeText(context, "Exported file is no longer available.", Toast.LENGTH_LONG).show()
+        return
+    }
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "video/mp4"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    try {
+        context.startActivity(Intent.createChooser(intent, "Share exported video"))
+    } catch (_: ActivityNotFoundException) {
+        Toast.makeText(context, "No app found to share this file.", Toast.LENGTH_LONG).show()
     }
 }

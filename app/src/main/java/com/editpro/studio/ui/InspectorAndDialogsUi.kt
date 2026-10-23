@@ -900,7 +900,9 @@ fun ExportVideoDialog(
     onUpdateSettings: ((ExportSettings) -> ExportSettings) -> Unit,
     onStartExport: () -> Unit,
     onQueueExport: () -> Unit,
-    onRunQueue: () -> Unit
+    onRunQueue: () -> Unit,
+    onOpenExport: (String) -> Unit = {},
+    onShareExport: (String) -> Unit = {}
 ) {
     val palette = LocalEditProPalette.current
     val es = state.exportSettings
@@ -972,6 +974,50 @@ fun ExportVideoDialog(
                 modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(99.dp))
             )
             Text(state.exportStatusText, color = palette.muted, fontSize = 11.sp)
+
+            // Delivered output: once a render finishes, surface the file so it can be
+            // opened or shared (the MP4 itself lives in the app's cache "exports" folder).
+            val exportedPath = state.lastExportedFilePath
+            val exportedInfo = remember(exportedPath) {
+                exportedPath?.let { p ->
+                    val f = java.io.File(p)
+                    if (f.exists()) f.name to f.length() else null
+                }
+            }
+            if (exportedPath != null && exportedInfo != null && !state.isExporting) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(palette.controlBg)
+                        .border(0.5.dp, palette.line, RoundedCornerShape(10.dp))
+                        .padding(10.dp)
+                ) {
+                    Text("Export ready", color = palette.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${exportedInfo.first} · ${formatFileSize(exportedInfo.second)}",
+                        color = palette.muted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        InspectorActionButton(
+                            text = "▶ Open",
+                            modifier = Modifier.weight(1f),
+                            onClick = { onOpenExport(exportedPath) }
+                        )
+                        InspectorActionButton(
+                            text = "Share",
+                            isPrimary = true,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onShareExport(exportedPath) }
+                        )
+                    }
+                }
+            }
 
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 InspectorActionButton("Close", modifier = Modifier.width(90.dp), onClick = onDismiss)
