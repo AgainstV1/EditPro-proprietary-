@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <cache-path name="exports" path="exports/" />
+    <!-- Rendered MP4s are stored in the app's private files directory (not the cache),
+         so a finished export survives Android's cache cleanup. -->
+    <files-path name="exports" path="exports/" />
     <files-path name="projects" path="projects/" />
     <files-path name="media" path="media/" />
 </paths>

@@ -92,7 +92,9 @@ object NativeVideoExporter {
         val renderDuration = max(0.5, toSec - fromSec)
         val totalFrames = max(1, (renderDuration * fps).roundToInt())
 
-        val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+        // Exports live in the app's private FILES directory, not the cache: Android is free to
+        // clear the cache at any time, which would silently destroy a finished render.
+        val exportDir = File(context.filesDir, "exports").apply { mkdirs() }
         val safeTitle = projectName.replace(Regex("[^a-zA-Z0-9_-]+"), "_").take(50).ifEmpty { "EditPro_Project" }
         val outputFile = File(exportDir, "${safeTitle}_AndroidTurbo.mp4")
         if (outputFile.exists()) outputFile.delete()
@@ -222,6 +224,14 @@ object NativeVideoExporter {
                 try { muxer.stop() } catch (_: Exception) {}
             }
             try { muxer.release() } catch (_: Exception) {}
+
+            // Keep the exports folder bounded — retain only the newest renders.
+            runCatching {
+                exportDir.listFiles { f -> f.isFile && f.name.endsWith(".mp4") }
+                    ?.sortedByDescending { it.lastModified() }
+                    ?.drop(12)
+                    ?.forEach { it.delete() }
+            }
 
             val sizeKb = max(1L, outputFile.length() / 1024L)
             onProgress(100, "✓ Android Hardware Turbo Export complete (MP4 · $sizeKb KB).")

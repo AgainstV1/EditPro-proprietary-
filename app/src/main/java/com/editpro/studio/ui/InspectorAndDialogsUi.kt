@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -879,11 +880,11 @@ fun InspectorActionButton(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .heightIn(min = 34.dp)
+            .heightIn(min = 40.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(if (isPrimary) palette.accent else palette.controlBg)
             .border(0.5.dp, if (isPrimary) palette.accent else palette.line, RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 7.dp)
     ) {
         Text(

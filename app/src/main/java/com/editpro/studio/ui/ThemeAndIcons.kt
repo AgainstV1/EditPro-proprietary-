@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -363,7 +364,7 @@ fun SmileIconButton(
                 color = if (isActive) palette.accent.copy(alpha = 0.7f) else palette.line,
                 shape = RoundedCornerShape(8.dp)
             )
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 5.dp)
             .semantics { contentDescription = accessibleLabel }
     ) {
