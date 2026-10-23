@@ -60,6 +60,18 @@ import kotlin.math.roundToInt
 /** An action that would discard the current timeline and therefore asks first. */
 enum class PendingConfirm { NEW_PROJECT, OPEN_PROJECT, DEMO_REEL }
 
+/**
+ * A record of a project the user saved through the system file picker. It is metadata only —
+ * the app cannot reopen the file without the user picking it again, so this is not a live
+ * index of the file system.
+ */
+data class RecentProject(
+    val name: String,
+    val savedAtEpochMs: Long,
+    val clipCount: Int,
+    val durationSec: Double
+)
+
 data class EditorUiState(
     val projectName: String = "Untitled Project",
     val saveStatus: String = "Local project · ready",
@@ -121,7 +133,9 @@ data class EditorUiState(
     val alertTitle: String? = null,
     val alertMessage: String? = null,
     val toastMessage: String? = null,
-    val pendingConfirm: PendingConfirm? = null
+    val pendingConfirm: PendingConfirm? = null,
+    val showHome: Boolean = true,
+    val recentProjects: List<RecentProject> = emptyList()
 ) {
     val assetsById: Map<String, MediaAsset>
         get() = assets.associateBy { it.id }
@@ -182,6 +196,7 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         loadPersistedPreferences()
+        loadRecentProjects()
         recoverAutosaveIfPresent()
     }
 
@@ -1456,6 +1471,7 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
                     val nextAssets = s.assets + listOf(a1, a2, a3, a4)
                     val nextClips = listOf(c1, c2, cPip, cTxt, cAud)
                     s.copy(
+                        showHome = false,
                         assets = nextAssets,
                         clips = nextClips,
                         markers = listOf(
@@ -1532,6 +1548,7 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
         snapHistory()
         _uiState.update {
             it.copy(
+                showHome = false,
                 projectName = "Untitled Project",
                 clips = emptyList(),
                 markers = emptyList(),
@@ -1565,6 +1582,7 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
             val dur = TimelineEngine.calcProjectDuration(doc.clips, mergedAssets.associateBy { it.id })
             _uiState.update {
                 it.copy(
+                    showHome = false,
                     projectName = doc.name,
                     projectSettings = doc.settings,
                     assets = mergedAssets,
@@ -1885,5 +1903,69 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearConfirm() {
         _uiState.update { it.copy(pendingConfirm = null) }
+    }
+
+    // -------------------------------------------------------------------------
+    // PROJECT HOME & RECENT PROJECTS
+    // -------------------------------------------------------------------------
+    fun setShowHome(show: Boolean) {
+        _uiState.update { it.copy(showHome = show) }
+    }
+
+    /** Called after a project has been written successfully through the file picker. */
+    fun recordRecentProject() {
+        val s = _uiState.value
+        val entry = RecentProject(
+            name = s.projectName,
+            savedAtEpochMs = System.currentTimeMillis(),
+            clipCount = s.clips.size,
+            durationSec = s.durationSec
+        )
+        val next = (listOf(entry) + s.recentProjects.filter { it.name != entry.name }).take(12)
+        _uiState.update { it.copy(recentProjects = next) }
+        persistRecentProjects(next)
+    }
+
+    /** Removes only the list entry; the saved project file is left untouched. */
+    fun removeRecentProject(name: String) {
+        val next = _uiState.value.recentProjects.filterNot { it.name == name }
+        _uiState.update { it.copy(recentProjects = next) }
+        persistRecentProjects(next)
+        showToast("Removed \"$name\" from the recent list. The saved file is unchanged.")
+    }
+
+    private fun loadRecentProjects() {
+        val raw = prefs.getString("recent_projects", null) ?: return
+        try {
+            val arr = org.json.JSONArray(raw)
+            val list = (0 until arr.length()).mapNotNull { i ->
+                arr.optJSONObject(i)?.let { o ->
+                    RecentProject(
+                        name = o.optString("name", "Project"),
+                        savedAtEpochMs = o.optLong("savedAt", 0L),
+                        clipCount = o.optInt("clips", 0),
+                        durationSec = o.optDouble("duration", 0.0)
+                    )
+                }
+            }
+            _uiState.update { it.copy(recentProjects = list) }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun persistRecentProjects(list: List<RecentProject>) {
+        try {
+            val arr = org.json.JSONArray()
+            list.forEach { rp ->
+                arr.put(org.json.JSONObject().apply {
+                    put("name", rp.name)
+                    put("savedAt", rp.savedAtEpochMs)
+                    put("clips", rp.clipCount)
+                    put("duration", rp.durationSec)
+                })
+            }
+            prefs.edit().putString("recent_projects", arr.toString()).apply()
+        } catch (_: Exception) {
+        }
     }
 }

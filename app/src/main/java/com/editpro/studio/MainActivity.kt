@@ -82,6 +82,7 @@ import com.editpro.studio.ui.LocalEditProPalette
 import com.editpro.studio.ui.MacTrafficLightsBrand
 import com.editpro.studio.ui.PresetPacksHubDialog
 import com.editpro.studio.ui.PreviewCenterPanel
+import com.editpro.studio.ui.ProjectHomeScreen
 import com.editpro.studio.ui.SmileIconButton
 import com.editpro.studio.ui.SmileIconType
 import com.editpro.studio.ui.SolidColorClipDialog
@@ -164,6 +165,7 @@ fun EditProWorkspaceScreen(
             }.exceptionOrNull()
             // Success is reported only once the write has actually completed without error.
             if (failure == null) {
+                viewModel.recordRecentProject()
                 viewModel.showToast("Project saved to ${uri.lastPathSegment ?: "file"}")
             } else {
                 viewModel.showAlert(
@@ -218,8 +220,8 @@ fun EditProWorkspaceScreen(
             .background(palette.bg)
             .onPreviewKeyEvent { ev ->
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                // Never swallow keys that belong to a text field.
-                if (anyTextFieldFocused) return@onPreviewKeyEvent false
+                // Never swallow keys that belong to a text field, and stay idle on the home screen.
+                if (anyTextFieldFocused || state.showHome) return@onPreviewKeyEvent false
                 val ctrl = ev.isCtrlPressed || ev.isMetaPressed
                 val alt = ev.isAltPressed
                 val shift = ev.isShiftPressed
@@ -534,6 +536,23 @@ fun EditProWorkspaceScreen(
             ) {
                 Text(text = msg, color = Color.White, fontSize = 13.sp)
             }
+        }
+
+        // Landing screen overlay — drawn last so it sits above the workspace.
+        if (state.showHome) {
+            ProjectHomeScreen(
+                state = state,
+                onNewProject = {
+                    if (viewModel.hasWorkToDiscard()) viewModel.requestConfirm(PendingConfirm.NEW_PROJECT)
+                    else viewModel.startNewProject()
+                },
+                onOpenProject = {
+                    if (viewModel.hasWorkToDiscard()) viewModel.requestConfirm(PendingConfirm.OPEN_PROJECT)
+                    else openProjectLauncher.launch(arrayOf("*/*"))
+                },
+                onContinue = { viewModel.setShowHome(false) },
+                onRemoveRecent = viewModel::removeRecentProject
+            )
         }
     }
 }
