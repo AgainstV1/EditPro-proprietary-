@@ -363,10 +363,10 @@ fun InspectorPanel(
                     InspectorSlider("3D Swivel Y (Yaw)", "${rig.swivelY.roundToInt()}°", rig.swivelY.toFloat(), -60f..60f) { v ->
                         onUpdateClip { it.copy(rig = it.rig.copy(swivelY = v.toDouble())) }
                     }
-                    InspectorSlider("Shutter Motion Blur", "${rig.shutter.roundToInt()}°", rig.shutter.toFloat(), 0f..360f) { v ->
+                    InspectorSlider("Shutter Motion Blur · not rendered yet", "${rig.shutter.roundToInt()}°", rig.shutter.toFloat(), 0f..360f) { v ->
                         onUpdateClip { it.copy(rig = it.rig.copy(shutter = v.toDouble())) }
                     }
-                    InspectorSlider("Chromatic Aberration", "${"%.1f".format(rig.aberration)}px", rig.aberration.toFloat(), 0f..12f) { v ->
+                    InspectorSlider("Chromatic Aberration · not rendered yet", "${"%.1f".format(rig.aberration)}px", rig.aberration.toFloat(), 0f..12f) { v ->
                         onUpdateClip { it.copy(rig = it.rig.copy(aberration = v.toDouble())) }
                     }
                     InspectorSlider("Anamorphic Squeeze", "${rig.anamorphic.roundToInt()}%", rig.anamorphic.toFloat(), 0f..35f) { v ->
@@ -434,7 +434,7 @@ fun InspectorPanel(
                     InspectorSlider("Saturation", "${f.saturation.roundToInt()}%", f.saturation.toFloat(), 0f..220f) { v ->
                         onUpdateClip { it.copy(filters = it.filters.copy(saturation = v.toDouble())) }
                     }
-                    InspectorSlider("Blur", "${"%.1f".format(f.blur)}px", f.blur.toFloat(), 0f..20f) { v ->
+                    InspectorSlider("Blur · not rendered yet", "${"%.1f".format(f.blur)}px", f.blur.toFloat(), 0f..20f) { v ->
                         onUpdateClip { it.copy(filters = it.filters.copy(blur = v.toDouble())) }
                     }
                     InspectorSlider("Temperature", "${f.temperature.roundToInt()}", f.temperature.toFloat(), -100f..100f) { v ->
@@ -449,7 +449,7 @@ fun InspectorPanel(
                     InspectorSlider("Vignette", "${f.vignette.roundToInt()}", f.vignette.toFloat(), 0f..100f) { v ->
                         onUpdateClip { it.copy(filters = it.filters.copy(vignette = v.toDouble())) }
                     }
-                    InspectorSlider("Hue Shift", "${f.hue.roundToInt()}°", f.hue.toFloat(), -180f..180f) { v ->
+                    InspectorSlider("Hue Shift · not rendered yet", "${f.hue.roundToInt()}°", f.hue.toFloat(), -180f..180f) { v ->
                         onUpdateClip { it.copy(filters = it.filters.copy(hue = v.toDouble())) }
                     }
                     InspectorSlider("Sepia", "${f.sepia.roundToInt()}%", f.sepia.toFloat(), 0f..100f) { v ->
@@ -458,7 +458,7 @@ fun InspectorPanel(
                     InspectorSlider("Invert", "${f.invert.roundToInt()}%", f.invert.toFloat(), 0f..100f) { v ->
                         onUpdateClip { it.copy(filters = it.filters.copy(invert = v.toDouble())) }
                     }
-                    InspectorSlider("Film Grain", "${f.grain.roundToInt()}", f.grain.toFloat(), 0f..100f) { v ->
+                    InspectorSlider("Film Grain · not rendered yet", "${f.grain.roundToInt()}", f.grain.toFloat(), 0f..100f) { v ->
                         onUpdateClip { it.copy(filters = it.filters.copy(grain = v.toDouble())) }
                     }
 

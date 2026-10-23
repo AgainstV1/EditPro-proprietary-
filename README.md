@@ -23,6 +23,10 @@ This repository is set up to be **built into an APK by GitHub Actions** the mome
 
 Package id: `com.editpro.studio` · minSdk 26 · targetSdk/compileSdk 34
 
+See [CHANGELOG.md](CHANGELOG.md) for what changed in each version, and
+[docs/MAINTENANCE.md](docs/MAINTENANCE.md) for how the project is verified, a manual test
+checklist, which effects actually reach the rendered output, and the known gaps.
+
 ---
 
 ## Build it locally
