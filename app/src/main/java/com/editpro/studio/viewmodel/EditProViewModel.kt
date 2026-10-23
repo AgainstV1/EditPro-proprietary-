@@ -1049,11 +1049,38 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
                 x = 0.0,
                 y = 0.0,
                 flipH = false,
-                flipV = false,
-                keyframes = emptyList()
+                flipV = false
+                // Keyframes are deliberately preserved: use "Clear keyframes" in the
+                // Motion tab when the animation itself should be removed.
             )
         }
-        showToast("Effects and transform reset")
+        showToast("Effects and transform reset (keyframes kept)")
+    }
+
+    /** Resets only the colour / effects grade, leaving transform, audio, timing and keyframes alone. */
+    fun resetSelectedClipColor() {
+        if (_uiState.value.selectedClip == null) return
+        snapHistory()
+        updateSelectedClip { it.copy(filters = ClipFilters()) }
+        showToast("Colour & effects reset")
+    }
+
+    /** Resets only the transform, leaving colour, audio, timing and keyframes alone. */
+    fun resetSelectedClipTransform() {
+        if (_uiState.value.selectedClip == null) return
+        snapHistory()
+        updateSelectedClip {
+            it.copy(
+                scale = 100.0,
+                opacity = 100.0,
+                rotation = 0.0,
+                x = 0.0,
+                y = 0.0,
+                flipH = false,
+                flipV = false
+            )
+        }
+        showToast("Transform reset")
     }
 
     fun createFreezeFrameFromSelectedClip() {

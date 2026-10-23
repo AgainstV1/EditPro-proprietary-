@@ -351,6 +351,8 @@ fun EditProWorkspaceScreen(
                     onSnapHistory = viewModel::snapHistory,
                     onUpdateClip = viewModel::updateSelectedClip,
                     onResetClip = viewModel::resetSelectedClipEffectsAndTransform,
+                    onResetColor = viewModel::resetSelectedClipColor,
+                    onResetTransform = viewModel::resetSelectedClipTransform,
                     onApplyLook = viewModel::applyLookPreset,
                     onApplyMotion = viewModel::applyMotionPreset,
                     onApplyEquipmentRig = viewModel::applyEquipmentRig,

@@ -76,6 +76,8 @@ fun InspectorPanel(
     onSnapHistory: () -> Unit,
     onUpdateClip: ((TimelineClip) -> TimelineClip) -> Unit,
     onResetClip: () -> Unit,
+    onResetColor: () -> Unit,
+    onResetTransform: () -> Unit,
     onApplyLook: (LookPreset) -> Unit,
     onApplyMotion: (String) -> Unit,
     onApplyEquipmentRig: (String) -> Unit,
@@ -285,6 +287,7 @@ fun InspectorPanel(
 
                 InspectorTab.LAYOUT -> {
                     SectionHeader("TRANSFORM")
+                    InspectorActionButton("Reset transform", onClick = onResetTransform)
                     InspectorSlider("Scale", "${clip.scale.roundToInt()}%", clip.scale.toFloat(), 10f..250f) { v ->
                         onUpdateClip { it.copy(scale = v.toDouble()) }
                     }
@@ -457,6 +460,8 @@ fun InspectorPanel(
                     InspectorSlider("Film Grain", "${f.grain.roundToInt()}", f.grain.toFloat(), 0f..100f) { v ->
                         onUpdateClip { it.copy(filters = it.filters.copy(grain = v.toDouble())) }
                     }
+
+                    InspectorActionButton("Reset colour & effects", onClick = onResetColor)
                 }
 
                 InspectorTab.AUDIO -> {
