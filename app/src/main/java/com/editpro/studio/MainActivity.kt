@@ -38,9 +38,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -109,6 +113,13 @@ fun EditProWorkspaceScreen(
 ) {
     val palette = LocalEditProPalette.current
     val context = LocalContext.current
+
+    // Text fields take priority over the editor shortcuts. While one of them has focus the
+    // global key handler below stays out of the way, so typing "s", space, Delete, "t" and
+    // so on is not hijacked by Split / Play / Delete-clip / Add-text.
+    var projectNameFocused by remember { mutableStateOf(false) }
+    var searchFocused by remember { mutableStateOf(false) }
+    val anyTextFieldFocused = projectNameFocused || searchFocused
 
     // Native Android Storage Access Framework Launchers
     val mediaPickerLauncher = rememberLauncherForActivityResult(
@@ -207,6 +218,8 @@ fun EditProWorkspaceScreen(
             .background(palette.bg)
             .onPreviewKeyEvent { ev ->
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                // Never swallow keys that belong to a text field.
+                if (anyTextFieldFocused) return@onPreviewKeyEvent false
                 val ctrl = ev.isCtrlPressed || ev.isMetaPressed
                 val alt = ev.isAltPressed
                 val shift = ev.isShiftPressed
@@ -250,6 +263,7 @@ fun EditProWorkspaceScreen(
             TopHeaderBar(
                 state = state,
                 onProjectNameChange = viewModel::setProjectName,
+                onProjectNameFocusChange = { projectNameFocused = it },
                 onSelectMode = viewModel::setWorkspaceMode,
                 onNewProject = {
                     if (viewModel.hasWorkToDiscard()) viewModel.requestConfirm(PendingConfirm.NEW_PROJECT)
@@ -280,6 +294,7 @@ fun EditProWorkspaceScreen(
                     onImportClick = { mediaPickerLauncher.launch(arrayOf("video/*", "audio/*", "image/*")) },
                     onDemoClick = viewModel::loadProDemoReel,
                     onSearchChange = viewModel::setAssetSearchQuery,
+                    onSearchFocusChange = { searchFocused = it },
                     onFilterChange = viewModel::setMediaFilter,
                     onSelectAsset = viewModel::selectAsset,
                     onAddAssetToTimeline = { asset -> viewModel.addAssetToTimeline(asset) },
@@ -527,6 +542,7 @@ fun EditProWorkspaceScreen(
 private fun TopHeaderBar(
     state: EditorUiState,
     onProjectNameChange: (String) -> Unit,
+    onProjectNameFocusChange: (Boolean) -> Unit,
     onSelectMode: (WorkspaceMode) -> Unit,
     onNewProject: () -> Unit,
     onLoadDemoReel: () -> Unit,
@@ -561,6 +577,7 @@ private fun TopHeaderBar(
             ),
             cursorBrush = SolidColor(palette.accent),
             modifier = Modifier
+                .onFocusChanged { onProjectNameFocusChange(it.isFocused) }
                 .width(170.dp)
                 .clip(RoundedCornerShape(7.dp))
                 .background(palette.controlBg)
@@ -632,6 +649,7 @@ private fun MediaLibraryPanel(
     onImportClick: () -> Unit,
     onDemoClick: () -> Unit,
     onSearchChange: (String) -> Unit,
+    onSearchFocusChange: (Boolean) -> Unit,
     onFilterChange: (String) -> Unit,
     onSelectAsset: (String) -> Unit,
     onAddAssetToTimeline: (MediaAsset) -> Unit,
@@ -687,6 +705,7 @@ private fun MediaLibraryPanel(
             singleLine = true,
             textStyle = TextStyle(color = palette.text, fontSize = 12.sp),
             cursorBrush = SolidColor(palette.accent),
+            modifier = Modifier.onFocusChanged { onSearchFocusChange(it.isFocused) },
             decorationBox = { inner ->
                 Box(
                     contentAlignment = Alignment.CenterStart,
