@@ -2,6 +2,7 @@ package com.editpro.studio
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.graphics.BitmapFactory
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -52,6 +53,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -933,12 +936,41 @@ private fun MediaLibraryPanel(
                                     shape = RoundedCornerShape(8.dp)
                                 )
                         ) {
-                            Text(
-                                text = asset.kind.label,
-                                color = palette.muted,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            // Real thumbnail where one can be produced: an image decodes from its
+                            // local copy, a video uses the first extracted filmstrip frame.
+                            val thumbPath = when (asset.kind) {
+                                AssetKind.IMAGE -> asset.localPath
+                                AssetKind.VIDEO -> asset.filmstripPaths.firstOrNull()
+                                else -> null
+                            }
+                            val thumb = remember(thumbPath) { loadThumbnail(thumbPath) }
+                            if (thumb != null) {
+                                androidx.compose.foundation.Image(
+                                    bitmap = thumb,
+                                    contentDescription = asset.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                // Audio badge stays readable on top of a video still.
+                                if (asset.kind == AssetKind.VIDEO) {
+                                    Text(
+                                        text = "▶",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .background(Color(0x8C000000), RoundedCornerShape(99.dp))
+                                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = asset.kind.label,
+                                    color = palette.muted,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(
@@ -977,6 +1009,22 @@ private fun MediaLibraryPanel(
                 }
             }
         }
+    }
+}
+
+/**
+ * Decodes a small thumbnail for a library tile. Sampled down heavily because these are shown at
+ * roughly 120dp wide; returning null falls back to the plain kind label.
+ */
+private fun loadThumbnail(path: String?): androidx.compose.ui.graphics.ImageBitmap? {
+    if (path.isNullOrBlank()) return null
+    return try {
+        val options = BitmapFactory.Options().apply { inSampleSize = 4 }
+        BitmapFactory.decodeFile(path, options)?.asImageBitmap()
+    } catch (_: Exception) {
+        null
+    } catch (_: OutOfMemoryError) {
+        null
     }
 }
 

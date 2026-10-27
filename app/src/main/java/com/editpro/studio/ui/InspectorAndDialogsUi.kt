@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -913,77 +914,21 @@ fun ExportVideoDialog(
 ) {
     val palette = LocalEditProPalette.current
     val es = state.exportSettings
+    var showOptions by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
+                .widthIn(max = 400.dp)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
                 .background(palette.panel)
                 .border(0.5.dp, palette.line, RoundedCornerShape(16.dp))
                 .padding(18.dp)
         ) {
-            Text("Export video", color = palette.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            Text(
-                "⚡ Android Hardware Turbo renders multi-track video/image layers, 3-Way Color Wheels, 3D Rigs, keyframe motion, and text titles directly via Android MediaCodec + MediaMuxer.",
-                color = palette.muted,
-                fontSize = 11.5.sp
-            )
+            Text("Export", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
 
-            SectionHeader("ASPECT RATIO")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("landscape" to "16:9", "portrait" to "9:16", "square" to "1:1", "classic" to "4:3").forEach { (id, lbl) ->
-                    InspectorChip(lbl, selected = es.aspect == id) {
-                        onUpdateSettings { it.copy(aspect = id) }
-                    }
-                }
-            }
-
-            SectionHeader("RESOLUTION & FRAME RATE")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("854x480" to "480p", "1280x720" to "720p HD", "1920x1080" to "1080p FHD").forEach { (res, lbl) ->
-                    InspectorChip(lbl, selected = es.resolution == res) {
-                        onUpdateSettings { it.copy(resolution = res) }
-                    }
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(24, 25, 30, 60).forEach { fps ->
-                    InspectorChip("${fps}fps", selected = es.fps == fps) {
-                        onUpdateSettings { it.copy(fps = fps) }
-                    }
-                }
-            }
-
-            InspectorSlider("Quality (CRF · lower = higher quality)", "${es.crf}", es.crf.toFloat(), 18f..32f) { v ->
-                onUpdateSettings { it.copy(crf = v.roundToInt()) }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = es.audioDucking, onCheckedChange = { v -> onUpdateSettings { it.copy(audioDucking = v) } })
-                Text("Auto-duck AUDIO 2 under AUDIO 1", color = palette.text, fontSize = 12.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = es.androidLowRamGuard, onCheckedChange = { v -> onUpdateSettings { it.copy(androidLowRamGuard = v) } })
-                Text("Android Smart Memory & Thermal Guard", color = palette.text, fontSize = 12.sp)
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                InspectorActionButton("＋ Add to queue", modifier = Modifier.weight(1f), onClick = onQueueExport)
-                InspectorActionButton("Run queue (${state.renderQueue.size})", modifier = Modifier.weight(1f), onClick = onRunQueue)
-            }
-
-            LinearProgressIndicator(
-                progress = { (state.exportProgressPct / 100f).coerceIn(0f, 1f) },
-                color = palette.accent,
-                trackColor = palette.controlBg,
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(99.dp))
-            )
-            Text(state.exportStatusText, color = palette.muted, fontSize = 11.sp)
-
-            // Delivered output: once a render finishes, surface the file so it can be
-            // opened or shared (the MP4 itself lives in the app's cache "exports" folder).
             val exportedPath = state.lastExportedFilePath
             val exportedInfo = remember(exportedPath) {
                 exportedPath?.let { p ->
@@ -991,58 +936,127 @@ fun ExportVideoDialog(
                     if (f.exists()) f.name to f.length() else null
                 }
             }
-            if (exportedPath != null && exportedInfo != null && !state.isExporting) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(palette.controlBg)
-                        .border(0.5.dp, palette.line, RoundedCornerShape(10.dp))
-                        .padding(10.dp)
-                ) {
-                    Text("Export ready", color = palette.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "${exportedInfo.first} · ${formatFileSize(exportedInfo.second)}",
-                        color = palette.muted,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            val justFinished = !state.isExporting && state.exportProgressPct >= 100 &&
+                exportedPath != null && exportedInfo != null
+
+            if (!justFinished) {
+                val aspectLabel = when (es.aspect) {
+                    "portrait" -> "9:16"
+                    "square" -> "1:1"
+                    "classic" -> "4:3"
+                    else -> "16:9"
+                }
+                val resLabel = when (es.resolution) {
+                    "854x480" -> "480p"
+                    "1920x1080" -> "1080p"
+                    else -> "720p"
+                }
+                Text(
+                    "$resLabel · ${es.fps} fps · $aspectLabel · ${formatTimecode(state.durationSec)}",
+                    color = palette.muted,
+                    fontSize = 12.sp
+                )
+
+                if (showOptions) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 300.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        SectionHeader("ASPECT RATIO")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("landscape" to "16:9", "portrait" to "9:16", "square" to "1:1", "classic" to "4:3").forEach { (id, lbl) ->
+                                InspectorChip(lbl, selected = es.aspect == id) {
+                                    onUpdateSettings { it.copy(aspect = id) }
+                                }
+                            }
+                        }
+                        SectionHeader("RESOLUTION")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("854x480" to "480p", "1280x720" to "720p", "1920x1080" to "1080p").forEach { (res, lbl) ->
+                                InspectorChip(lbl, selected = es.resolution == res) {
+                                    onUpdateSettings { it.copy(resolution = res) }
+                                }
+                            }
+                        }
+                        SectionHeader("FRAME RATE")
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(24, 25, 30, 60).forEach { fps ->
+                                InspectorChip("${fps}fps", selected = es.fps == fps) {
+                                    onUpdateSettings { it.copy(fps = fps) }
+                                }
+                            }
+                        }
+                        InspectorSlider("Quality (CRF · lower = better)", "${es.crf}", es.crf.toFloat(), 18f..32f) { v ->
+                            onUpdateSettings { it.copy(crf = v.roundToInt()) }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = es.androidLowRamGuard,
+                                onCheckedChange = { v -> onUpdateSettings { it.copy(androidLowRamGuard = v) } }
+                            )
+                            Text("Memory guard on low-RAM devices", color = palette.text, fontSize = 11.5.sp)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            InspectorActionButton("Add to queue", modifier = Modifier.weight(1f), onClick = onQueueExport)
+                            InspectorActionButton("Run queue (${state.renderQueue.size})", modifier = Modifier.weight(1f), onClick = onRunQueue)
+                        }
+                    }
+                }
+
+                if (state.isExporting) {
+                    LinearProgressIndicator(
+                        progress = { (state.exportProgressPct / 100f).coerceIn(0f, 1f) },
+                        color = palette.accent,
+                        trackColor = palette.controlBg,
+                        modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(99.dp))
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        InspectorActionButton(
-                            text = "▶ Open",
-                            modifier = Modifier.weight(1f),
-                            onClick = { onOpenExport(exportedPath) }
-                        )
-                        InspectorActionButton(
-                            text = "Share",
-                            isPrimary = true,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onShareExport(exportedPath) }
-                        )
+                    Text(state.exportStatusText, color = palette.muted, fontSize = 11.sp, maxLines = 2)
+                }
+            }
+
+            // Post-export: the render is already saved to the gallery, so the only choices
+            // left are sharing it or closing.
+            if (justFinished && exportedPath != null && exportedInfo != null) {
+                Text("Saved to Photos", color = palette.green, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    text = "${exportedInfo.first} · ${formatFileSize(exportedInfo.second)}",
+                    color = palette.muted,
+                    fontSize = 10.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    InspectorActionButton("Close", modifier = Modifier.weight(1f), onClick = onDismiss)
+                    InspectorActionButton("Share", isPrimary = true, modifier = Modifier.weight(1f)) {
+                        onShareExport(exportedPath)
                     }
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                InspectorActionButton("Close", modifier = Modifier.width(90.dp), onClick = onDismiss)
-                Spacer(modifier = Modifier.width(8.dp))
-                if (state.isExporting) {
-                    // One action at a time: while rendering, the primary button becomes Cancel.
-                    InspectorActionButton(
-                        text = "Cancel export",
-                        modifier = Modifier.width(130.dp),
-                        onClick = onCancelExport
-                    )
-                } else {
-                    InspectorActionButton(
-                        text = "Render MP4",
-                        isPrimary = true,
-                        modifier = Modifier.width(130.dp),
-                        onClick = onStartExport
-                    )
+            if (!justFinished) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (state.isExporting) {
+                        // One action at a time: while rendering, the primary button becomes Cancel.
+                        InspectorActionButton(
+                            text = "Cancel export",
+                            modifier = Modifier.weight(1f),
+                            onClick = onCancelExport
+                        )
+                    } else {
+                        InspectorActionButton(
+                            text = if (showOptions) "Hide options" else "Options",
+                            modifier = Modifier.weight(1f)
+                        ) { showOptions = !showOptions }
+                        InspectorActionButton(
+                            text = "Export",
+                            isPrimary = true,
+                            modifier = Modifier.weight(1f),
+                            onClick = onStartExport
+                        )
+                    }
                 }
             }
         }

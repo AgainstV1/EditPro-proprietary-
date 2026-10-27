@@ -1958,7 +1958,14 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // Modal visibility helpers
-    fun setShowExportModal(show: Boolean) = _uiState.update { it.copy(showExportModal = show) }
+    fun setShowExportModal(show: Boolean) = _uiState.update {
+        if (show && !it.isExporting) {
+            // Opening the sheet should offer a fresh export, not re-show the last summary.
+            it.copy(showExportModal = true, exportProgressPct = 0)
+        } else {
+            it.copy(showExportModal = show)
+        }
+    }
     fun setShowToolsModal(show: Boolean) = _uiState.update { it.copy(showToolsModal = show) }
     fun setShowSolidModal(show: Boolean) = _uiState.update { it.copy(showSolidModal = show) }
     fun setShowPresetsModal(show: Boolean) = _uiState.update { it.copy(showPresetsModal = show) }
