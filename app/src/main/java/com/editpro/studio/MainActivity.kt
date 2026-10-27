@@ -221,6 +221,19 @@ fun EditProWorkspaceScreen(
         }
     }
 
+    // Shared by the keyboard shortcuts so the "discard current work?" guard is not bypassed.
+    val requestNewProject: () -> Unit = {
+        if (viewModel.hasWorkToDiscard()) viewModel.requestConfirm(PendingConfirm.NEW_PROJECT)
+        else viewModel.startNewProject()
+    }
+    val requestOpenProject: () -> Unit = {
+        if (viewModel.hasWorkToDiscard()) viewModel.requestConfirm(PendingConfirm.OPEN_PROJECT)
+        else openProjectLauncher.launch(arrayOf("*/*"))
+    }
+    val requestImportMedia: () -> Unit = {
+        mediaPickerLauncher.launch(arrayOf("video/*", "audio/*", "image/*"))
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -249,6 +262,28 @@ fun EditProWorkspaceScreen(
                         else -> Unit
                     }
                 }
+
+                // File / panel shortcuts that the header buttons advertise on their badges.
+                // These previously did nothing at all, so the badges were misleading.
+                if (ctrl) {
+                    when (ev.key) {
+                        Key.N -> { requestNewProject(); return@onPreviewKeyEvent true }
+                        Key.S -> {
+                            saveProjectLauncher.launch("${sanitizeFileName(state.projectName)}.filmcraft")
+                            return@onPreviewKeyEvent true
+                        }
+                        Key.O -> { requestOpenProject(); return@onPreviewKeyEvent true }
+                        Key.E -> { viewModel.setShowExportModal(true); return@onPreviewKeyEvent true }
+                        Key.K -> { viewModel.setShowToolsModal(true); return@onPreviewKeyEvent true }
+                        Key.I -> { requestImportMedia(); return@onPreviewKeyEvent true }
+                        Key.P -> if (alt) {
+                            viewModel.setShowPresetsModal(true)
+                            return@onPreviewKeyEvent true
+                        } else Unit
+                        else -> Unit
+                    }
+                }
+
                 when (ev.key) {
                     Key.Spacebar -> { viewModel.togglePlayPause(); true }
                     Key.S -> if (!ctrl && !alt) { viewModel.splitAtPlayhead(); true } else false

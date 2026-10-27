@@ -44,6 +44,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -501,6 +503,21 @@ private fun TimelineClipBlock(
                     showContextMenu = true
                 }
             )
+            // Right-click (mouse / trackpad secondary button) opens the same context menu as
+            // long-press. Long-press alone is useless with a mouse, and the menu was previously
+            // unreachable that way.
+            .pointerInput(c.id) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                            onSelect(false)
+                            showContextMenu = true
+                            event.changes.forEach { it.consume() }
+                        }
+                    }
+                }
+            }
             .pointerInput(c.id, scaleDpPerSec) {
                 var accumDxPx = 0f
                 detectDragGestures(
