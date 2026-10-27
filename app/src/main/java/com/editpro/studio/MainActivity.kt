@@ -1,5 +1,6 @@
 package com.editpro.studio
 
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -66,6 +67,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.editpro.studio.model.AssetKind
 import com.editpro.studio.model.MediaAsset
 import com.editpro.studio.model.ProjectSerializer
@@ -121,6 +125,9 @@ fun EditProWorkspaceScreen(
     var projectNameFocused by remember { mutableStateOf(false) }
     var searchFocused by remember { mutableStateOf(false) }
     val anyTextFieldFocused = projectNameFocused || searchFocused
+
+    val hostActivity = context as? Activity
+    var immersive by remember { mutableStateOf(false) }
 
     // Native Android Storage Access Framework Launchers
     val mediaPickerLauncher = rememberLauncherForActivityResult(
@@ -282,7 +289,22 @@ fun EditProWorkspaceScreen(
                     if (viewModel.hasWorkToDiscard()) viewModel.requestConfirm(PendingConfirm.OPEN_PROJECT)
                     else openProjectLauncher.launch(arrayOf("*/*"))
                 },
-                onOpenExport = { viewModel.setShowExportModal(true) }
+                onOpenExport = { viewModel.setShowExportModal(true) },
+                onGoHome = { viewModel.setShowHome(true) },
+                onMinimise = { hostActivity?.moveTaskToBack(true) },
+                onToggleFullscreen = {
+                    immersive = !immersive
+                    hostActivity?.let { act ->
+                        val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
+                        if (immersive) {
+                            controller.hide(WindowInsetsCompat.Type.systemBars())
+                            controller.systemBarsBehavior =
+                                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                        } else {
+                            controller.show(WindowInsetsCompat.Type.systemBars())
+                        }
+                    }
+                }
             )
 
             // Main 3-Pane Split Workspace (Media Library | Preview Center | 5-Tab Inspector)
@@ -571,7 +593,10 @@ private fun TopHeaderBar(
     onOpenTools: () -> Unit,
     onSaveProject: () -> Unit,
     onOpenProject: () -> Unit,
-    onOpenExport: () -> Unit
+    onOpenExport: () -> Unit,
+    onGoHome: () -> Unit,
+    onMinimise: () -> Unit,
+    onToggleFullscreen: () -> Unit
 ) {
     val palette = LocalEditProPalette.current
     Row(
@@ -584,7 +609,12 @@ private fun TopHeaderBar(
             .border(0.5.dp, palette.line)
             .padding(horizontal = 14.dp)
     ) {
-        MacTrafficLightsBrand(title = "Edit Pro")
+        MacTrafficLightsBrand(
+            title = "Edit Pro",
+            onClose = onGoHome,
+            onMinimise = onMinimise,
+            onFullscreen = onToggleFullscreen
+        )
 
         BasicTextField(
             value = state.projectName,

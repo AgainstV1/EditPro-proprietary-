@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.editpro.studio.media.GalleryPublisher
 import com.editpro.studio.media.MediaEngine
 import com.editpro.studio.media.NativeVideoExporter
 import com.editpro.studio.model.AssetKind
@@ -1815,16 +1816,27 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
                         _uiState.update { it.copy(exportProgressPct = pct, exportStatusText = msg) }
                     }
                 )
+                // Publish the finished file into the shared Movies collection so the Photos /
+                // Gallery app can see it (app-private storage is invisible to the gallery).
+                var finalMessage = result.message
+                if (result.success) {
+                    result.outputFile?.let { f ->
+                        val note = withContext(Dispatchers.IO) {
+                            GalleryPublisher.publish(getApplication(), f, f.name)
+                        }
+                        finalMessage = "${result.message} · $note"
+                    }
+                }
                 _uiState.update {
                     it.copy(
                         isExporting = false,
                         exportProgressPct = if (result.success) 100 else 0,
-                        exportStatusText = result.message,
+                        exportStatusText = finalMessage,
                         // Keep the previous delivered file if this render did not produce one.
                         lastExportedFilePath = result.outputFile?.absolutePath ?: it.lastExportedFilePath
                     )
                 }
-                showToast(result.message)
+                showToast(finalMessage)
             } catch (ce: CancellationException) {
                 // The render was cancelled: always clear the busy flag so the UI cannot get stuck.
                 withContext(NonCancellable) {
@@ -1876,6 +1888,11 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
                     if (result.success) {
                         succeeded++
                         lastPath = result.outputFile?.absolutePath
+                        result.outputFile?.let { f ->
+                            withContext(Dispatchers.IO) {
+                                GalleryPublisher.publish(getApplication(), f, f.name)
+                            }
+                        }
                     } else {
                         failed++
                     }
