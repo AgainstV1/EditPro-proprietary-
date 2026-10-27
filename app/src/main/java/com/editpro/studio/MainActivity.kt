@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -37,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +47,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -235,10 +239,25 @@ fun EditProWorkspaceScreen(
         mediaPickerLauncher.launch(arrayOf("video/*", "audio/*", "image/*"))
     }
 
+    // Compose only delivers hardware key events to a focused node. Nothing in the app ever took
+    // focus, so Space / S / Backspace / Delete never reached the handler at all. The workspace
+    // root now takes focus itself and reclaims it whenever a dialog closes.
+    val rootFocus = remember { FocusRequester() }
+    val anyDialogOpen = state.showExportModal || state.showToolsModal || state.showSolidModal ||
+        state.showPresetsModal || state.showShortcutsModal ||
+        state.pendingConfirm != null || state.alertTitle != null
+    LaunchedEffect(state.showHome, anyDialogOpen) {
+        if (!state.showHome && !anyDialogOpen) {
+            runCatching { rootFocus.requestFocus() }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(palette.bg)
+            .focusRequester(rootFocus)
+            .focusable()
             .onPreviewKeyEvent { ev ->
                 if (ev.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 // Never swallow keys that belong to a text field, and stay idle on the home screen.
