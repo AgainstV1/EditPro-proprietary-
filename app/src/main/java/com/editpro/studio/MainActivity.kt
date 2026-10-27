@@ -87,6 +87,7 @@ import com.editpro.studio.ui.MacTrafficLightsBrand
 import com.editpro.studio.ui.PresetPacksHubDialog
 import com.editpro.studio.ui.PreviewCenterPanel
 import com.editpro.studio.ui.ProjectHomeScreen
+import com.editpro.studio.ui.ShortcutsDialog
 import com.editpro.studio.ui.SmileIconButton
 import com.editpro.studio.ui.SmileIconType
 import com.editpro.studio.ui.SolidColorClipDialog
@@ -523,8 +524,13 @@ fun EditProWorkspaceScreen(
                 onClearTimeline = viewModel::clearTimeline,
                 onToggleSnap = viewModel::toggleMagneticSnap,
                 onToggleAutoFit = viewModel::toggleAutoFitTimeline,
-                onToggleCompact = viewModel::toggleCompactTimeline
+                onToggleCompact = viewModel::toggleCompactTimeline,
+                onOpenShortcuts = { viewModel.setShowShortcutsModal(true) }
             )
+        }
+
+        if (state.showShortcutsModal) {
+            ShortcutsDialog(onDismiss = { viewModel.setShowShortcutsModal(false) })
         }
 
         if (state.showSolidModal) {

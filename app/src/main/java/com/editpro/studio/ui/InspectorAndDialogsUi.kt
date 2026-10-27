@@ -1075,7 +1075,8 @@ fun EditingToolsDialog(
     onClearTimeline: () -> Unit,
     onToggleSnap: () -> Unit,
     onToggleAutoFit: () -> Unit,
-    onToggleCompact: () -> Unit
+    onToggleCompact: () -> Unit,
+    onOpenShortcuts: () -> Unit
 ) {
     val palette = LocalEditProPalette.current
     Dialog(onDismissRequest = onDismiss) {
@@ -1103,6 +1104,7 @@ fun EditingToolsDialog(
             InspectorActionButton("Preset packs · Import / Export (Ctrl+Alt+P)", isPrimary = true) {
                 onDismiss(); onOpenPresets()
             }
+            InspectorActionButton("Keyboard & mouse shortcuts") { onDismiss(); onOpenShortcuts() }
             InspectorActionButton("＋ Add solid colour clip") { onDismiss(); onOpenSolidModal() }
             InspectorActionButton("Import subtitles (SRT)") { onDismiss(); onImportSrtClick() }
             InspectorActionButton("Add marker at playhead") { onDismiss(); onAddMarker() }
@@ -1334,6 +1336,81 @@ fun ConfirmDialog(
                 Spacer(modifier = Modifier.width(8.dp))
                 InspectorActionButton(confirmLabel, isPrimary = true, modifier = Modifier.width(140.dp), onClick = onConfirm)
             }
+        }
+    }
+}
+
+/** Reference sheet for the keyboard and mouse bindings that actually work. */
+@Composable
+fun ShortcutsDialog(onDismiss: () -> Unit) {
+    val palette = LocalEditProPalette.current
+    val entries = listOf(
+        "Play / pause" to "Space",
+        "Split at playhead" to "S",
+        "Delete selected clips" to "Delete / Backspace",
+        "Ripple delete" to "Shift+Delete",
+        "Undo / redo" to "Ctrl+Z / Ctrl+Shift+Z",
+        "Duplicate clip" to "Ctrl+D",
+        "Add marker" to "Ctrl+M",
+        "Add text clip" to "T",
+        "Step 0.1s" to "Left / Right arrow",
+        "Toggle grade split" to "Backslash",
+        "New project" to "Ctrl+N",
+        "Open project" to "Ctrl+O",
+        "Save project" to "Ctrl+S",
+        "Export video" to "Ctrl+E",
+        "Import media" to "Ctrl+I",
+        "Tools panel" to "Ctrl+K",
+        "Preset packs" to "Ctrl+Alt+P",
+        "Workspace modes" to "Alt+1 to Alt+4",
+        "Toggle scopes" to "Alt+S",
+        "Light / dark theme" to "Alt+L",
+        "Clip context menu" to "Right-click or long-press"
+    )
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(palette.panel)
+                .border(0.5.dp, palette.line, RoundedCornerShape(16.dp))
+                .padding(18.dp)
+        ) {
+            Text(
+                "Keyboard & mouse shortcuts",
+                color = palette.text,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "Ctrl also responds to the Meta key. Shortcuts are ignored while a text field has focus.",
+                color = palette.muted,
+                fontSize = 11.5.sp
+            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 380.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                entries.forEach { (label, keys) ->
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(palette.controlBg)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(label, color = palette.text, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        Text(keys, color = palette.accent, fontSize = 11.5.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+            InspectorActionButton("Done", isPrimary = true, onClick = onDismiss)
         }
     }
 }

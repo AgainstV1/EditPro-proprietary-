@@ -30,7 +30,8 @@ if it broke.
 3. **Shortcut/typing separation** — click into the project-name field and type a name containing
    `s`, `t`, spaces and Delete. Nothing on the timeline should change.
 4. **Export and retrieve** — render a short project (2–5 s), then use **Open** and **Share** in
-   the export dialog. Confirm the file plays and can be sent to another app.
+   the export dialog. Confirm the file plays, has sound, and shows up in your Photos/Gallery app
+   under `Movies/EditPro`.
 5. **Cancel a render** — start a longer render and hit *Cancel export*. The progress bar should
    stop, the button should return to *Render MP4*, and the app should stay usable.
 6. **Import batch** — import several files at once, including one unsupported file and one
@@ -42,6 +43,11 @@ if it broke.
 9. **Undo/redo** — after each of the above, undo and redo and confirm the timeline returns to
    the expected states.
 10. **Rendered output vs preview** — see the table below.
+11. **Audio in preview** — import an audio file, add it to an audio track, press play and confirm
+    you hear it; then mute that track and confirm it goes silent.
+12. **Right-click a clip** — with a mouse, secondary-click a clip and confirm the context menu
+    opens (long-press still works for touch).
+13. **Advertised shortcuts** — try Ctrl+S, Ctrl+O, Ctrl+E, Ctrl+N, Ctrl+I, Ctrl+K and Ctrl+Alt+P.
 
 ## What actually renders
 
@@ -72,15 +78,20 @@ The five controls in bold now carry a **"· not rendered yet"** label in the ins
 not mistaken for working effects. Their values are still stored in the project file, so
 implementing them later will light up existing projects rather than requiring a migration.
 
-Audio (volume, pan, EQ, compression, de-essing, reverb, automation, fades) is stored and
-displayed, and the export writes a video track only — **the exported MP4 currently has no audio
-track**. This is the largest known functional gap.
+Audio is a partial story. **Volume, fades and volume automation are applied** in both preview and
+export; the export mixes every audible clip into one stereo AAC track at 44.1 kHz. **Pan, EQ,
+compression, de-essing and reverb are stored and shown in the UI but are not applied** to either
+the preview or the exported audio.
 
 ## Known gaps and follow-ups
 
-- **Exported MP4 has no audio.** `NativeVideoExporter` configures a single H.264 track. Adding an
-  AAC track via a second `MediaCodec` encoder and an audio `MediaMuxer` track is the main piece
-  of work left on export.
+- **Export audio is a basic mix.** Volume, fades and automation are honoured; pan, EQ,
+  compression, de-essing and reverb are not. Audio is capped at 5 minutes per render, resampling
+  is nearest-neighbour, and clip `speed` shifts pitch rather than time-stretching. Solo is not
+  re-resolved for export (mute and hide are).
+- **Gallery publishing is best-effort.** On Android 10+ it goes through MediaStore and needs no
+  permission; on Android 8–9 it needs `WRITE_EXTERNAL_STORAGE` and falls back to a message if
+  that is denied. A publish failure never fails the export.
 - **Exports accumulate** in the app's files directory. The folder is capped at the newest 12
   renders; if a longer retention policy is wanted, that cap is in `NativeVideoExporter`.
 - **No instrumentation tests.** The manual checklist above is the substitute.

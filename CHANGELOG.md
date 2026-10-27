@@ -2,6 +2,29 @@
 
 All notable changes to Edit Pro Studio (Android). Newest first.
 
+## 2.2.0 — unreleased
+
+Fixes for four reported problems. No new features.
+
+### Fixed
+- **Audio was silent everywhere.** There was no audio playback code at all, and the exporter
+  wrote a single video track. The preview now plays the timeline's audio clips (cued to the
+  playhead, with volume, fades and automation), and the exported MP4 carries a stereo AAC track.
+- **Exports never appeared in Photos.** Renders were written to app-private storage, which the
+  gallery cannot see. Finished files are now also published to MediaStore under `Movies/EditPro`.
+- **The three dots in the header did nothing.** They looked like macOS window buttons but had no
+  click handler. Red now returns to the project home, yellow minimises the app, green toggles
+  immersive full screen.
+- **Right-click did nothing on clips.** The clip context menu existed but was reachable only by
+  long-press, which is useless with a mouse. A secondary-button press now opens it.
+- **Seven advertised shortcuts were unbound.** The header badges showed Cmd/Ctrl+N, S, O, E, K, I
+  and Ctrl+Alt+P, but none of them were handled — pressing them did nothing. All now work and go
+  through the same "discard current work?" guard as the buttons.
+
+### Added
+- **Keyboard & mouse shortcuts sheet** (Tools panel), so the bindings are discoverable instead of
+  being guessed from badges.
+
 ## 2.1.0 — unreleased
 
 A reliability and usability pass driven by the incremental improvement roadmap
