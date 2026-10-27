@@ -20,6 +20,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -51,10 +53,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -71,6 +76,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -80,6 +86,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.editpro.studio.model.AssetKind
 import com.editpro.studio.model.MediaAsset
 import com.editpro.studio.model.ProjectSerializer
+import com.editpro.studio.model.TimelineTrack
 import com.editpro.studio.model.WorkspaceMode
 import com.editpro.studio.model.formatFileSize
 import com.editpro.studio.model.formatTimecode
@@ -98,11 +105,13 @@ import com.editpro.studio.ui.ShortcutsDialog
 import com.editpro.studio.ui.SmileIconButton
 import com.editpro.studio.ui.SmileIconType
 import com.editpro.studio.ui.SolidColorClipDialog
+import com.editpro.studio.ui.TimelineDropGeometry
 import com.editpro.studio.ui.TimelinePanel
 import com.editpro.studio.viewmodel.EditProViewModel
 import com.editpro.studio.viewmodel.EditorUiState
 import com.editpro.studio.viewmodel.PendingConfirm
 import java.io.File
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
 
@@ -136,6 +145,12 @@ fun EditProWorkspaceScreen(
 
     val hostActivity = context as? Activity
     var immersive by remember { mutableStateOf(false) }
+
+    // Asset drag-and-drop: the dragged asset, the pointer in root coordinates, and the timeline's
+    // layout (reported by TimelinePanel) so a drop can be turned into a track and a time.
+    var dragAsset by remember { mutableStateOf<MediaAsset?>(null) }
+    var dragPosition by remember { mutableStateOf(Offset.Zero) }
+    var timelineGeometry by remember { mutableStateOf<TimelineDropGeometry?>(null) }
 
     // Native Android Storage Access Framework Launchers
     val mediaPickerLauncher = rememberLauncherForActivityResult(
@@ -240,6 +255,27 @@ fun EditProWorkspaceScreen(
     }
     val requestImportMedia: () -> Unit = {
         mediaPickerLauncher.launch(arrayOf("video/*", "audio/*", "image/*"))
+    }
+
+    // Turns a drop point into a track and a time. Falls back to the natural track when the point
+    // is outside the timeline, or lands on a track that cannot hold this kind of media.
+    fun dropAsset(asset: MediaAsset) {
+        val natural = if (asset.kind == AssetKind.AUDIO) TimelineTrack.AUDIO else TimelineTrack.VIDEO
+        val geom = timelineGeometry
+        val pos = dragPosition
+        val target = if (geom == null) natural else {
+            val index = ((pos.y - geom.tracksTopY) / geom.rowHeightPx).toInt()
+            val track = TimelineTrack.entries.getOrNull(index)
+            when {
+                track == null || track == TimelineTrack.TEXT -> natural
+                track.isAudio != (asset.kind == AssetKind.AUDIO) -> natural
+                else -> track
+            }
+        }
+        val at = if (geom != null && geom.pxPerSecond > 0f) {
+            ((pos.x - geom.contentStartX) / geom.pxPerSecond).toDouble().coerceAtLeast(0.0)
+        } else 0.0
+        viewModel.addAssetToTimeline(asset, target, at)
     }
 
     // Compose only delivers hardware key events to a focused node. Nothing in the app ever took
@@ -381,6 +417,16 @@ fun EditProWorkspaceScreen(
                     onSelectAsset = viewModel::selectAsset,
                     onAddAssetToTimeline = { asset -> viewModel.addAssetToTimeline(asset) },
                     onToggleFavorite = viewModel::toggleAssetFavorite,
+                    onAssetDragStart = { asset, pos ->
+                        dragAsset = asset
+                        dragPosition = pos
+                    },
+                    onAssetDragMove = { pos -> dragPosition = pos },
+                    onAssetDragEnd = {
+                        val dropped = dragAsset
+                        dragAsset = null
+                        if (dropped != null) dropAsset(dropped)
+                    },
                     modifier = Modifier.width(state.leftPanelWidthDp.dp)
                 )
 
@@ -502,8 +548,28 @@ fun EditProWorkspaceScreen(
                 onDetectBeats = viewModel::detectBeatsOnSelectedClip,
                 onOpenPresetHub = { viewModel.setShowPresetsModal(true) },
                 onToggleGradeSplit = viewModel::toggleGradeSplitWipe,
+                onGeometry = { timelineGeometry = it },
                 modifier = Modifier.height(state.timelineHeightDp.dp)
             )
+        }
+
+        // Floating ghost while an asset is being dragged from the library onto the timeline.
+        dragAsset?.let { dragged ->
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(dragPosition.x.roundToInt(), dragPosition.y.roundToInt()) }
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(palette.accent.copy(alpha = 0.92f))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = dragged.name,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         // Modals
@@ -768,6 +834,9 @@ private fun MediaLibraryPanel(
     onSelectAsset: (String) -> Unit,
     onAddAssetToTimeline: (MediaAsset) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    onAssetDragStart: (MediaAsset, Offset) -> Unit,
+    onAssetDragMove: (Offset) -> Unit,
+    onAssetDragEnd: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalEditProPalette.current
@@ -909,14 +978,30 @@ private fun MediaLibraryPanel(
             ) {
                 items(filteredAssets, key = { it.id }) { asset ->
                     val selected = asset.id == state.selectedAssetId
+                    var tileOrigin by remember { mutableStateOf(Offset.Zero) }
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .onGloballyPositioned { tileOrigin = it.positionInRoot() }
                             .combinedClickable(
                                 onClick = { onSelectAsset(asset.id) },
-                                onDoubleClick = { onAddAssetToTimeline(asset) },
-                                onLongClick = { onAddAssetToTimeline(asset) }
+                                onDoubleClick = { onAddAssetToTimeline(asset) }
                             )
+                            // Long-press starts a drag onto the timeline. Double-tap still adds the
+                            // clip at the end of its track, which is quicker for simple assembly.
+                            .pointerInput(asset.id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = { offset ->
+                                        onAssetDragStart(asset, tileOrigin + offset)
+                                    },
+                                    onDrag = { change, _ ->
+                                        change.consume()
+                                        onAssetDragMove(tileOrigin + change.position)
+                                    },
+                                    onDragEnd = { onAssetDragEnd() },
+                                    onDragCancel = { onAssetDragEnd() }
+                                )
+                            }
                     ) {
                         Box(
                             contentAlignment = Alignment.Center,

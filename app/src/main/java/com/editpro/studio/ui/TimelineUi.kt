@@ -47,6 +47,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -83,6 +85,17 @@ fun niceTimelineStep(raw: Double): Double {
     return stepFactor * p
 }
 
+/**
+ * Where the timeline content sits on screen, in root coordinates, so a drag coming from the media
+ * library can be turned into a track and a time. Reported by [TimelinePanel] as it lays out.
+ */
+data class TimelineDropGeometry(
+    val contentStartX: Float,
+    val tracksTopY: Float,
+    val rowHeightPx: Float,
+    val pxPerSecond: Float
+)
+
 @Composable
 fun TimelinePanel(
     state: EditorUiState,
@@ -114,6 +127,7 @@ fun TimelinePanel(
     onDetectBeats: () -> Unit,
     onOpenPresetHub: () -> Unit,
     onToggleGradeSplit: () -> Unit,
+    onGeometry: (TimelineDropGeometry) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val palette = LocalEditProPalette.current
@@ -250,7 +264,22 @@ fun TimelinePanel(
                         .fillMaxHeight()
                         .horizontalScroll(hScroll)
                 ) {
-                    Column(modifier = Modifier.width(contentWidthDp)) {
+                    val localDensity = LocalDensity.current
+                    Column(
+                        modifier = Modifier
+                            .width(contentWidthDp)
+                            .onGloballyPositioned { coords ->
+                                val origin = coords.positionInRoot()
+                                onGeometry(
+                                    TimelineDropGeometry(
+                                        contentStartX = origin.x,
+                                        tracksTopY = origin.y + with(localDensity) { 26.dp.toPx() },
+                                        rowHeightPx = with(localDensity) { rowHeightDp.toPx() },
+                                        pxPerSecond = (effectiveScaleDpPerSec * localDensity.density).toFloat()
+                                    )
+                                )
+                            }
+                    ) {
                         // Sticky Time Ruler + Markers
                         TimelineRuler(
                             totalDurationSec = totalDur,
