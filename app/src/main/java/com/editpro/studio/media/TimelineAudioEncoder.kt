@@ -1,0 +1,307 @@
+package com.editpro.studio.media
+
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import com.editpro.studio.model.MediaAsset
+import com.editpro.studio.model.ResolvedClip
+import com.editpro.studio.model.TimelineEngine
+import com.editpro.studio.model.TimelineTrack
+import com.editpro.studio.model.TrackState
+import java.io.File
+import kotlin.math.min
+
+/**
+ * Mixes the timeline's audio clips and encodes them to AAC for the exported MP4.
+ *
+ * The video renderer previously wrote a video-only file, so exports were silent. This produces a
+ * single stereo AAC track at 44.1 kHz: every audible audio clip is decoded, resampled by
+ * nearest-neighbour onto the 44.1 kHz grid, positioned by its timeline start, and summed with its
+ * volume, fades and volume automation applied.
+ *
+ * Deliberate limits (kept simple and predictable):
+ *  - audio is capped at [MAX_SECONDS] so the PCM buffer cannot exhaust memory on a tablet;
+ *  - mute/hide is honoured; solo is not re-resolved here beyond what the caller passes;
+ *  - clip `speed` shifts the source read position (pitch follows, as there is no time-stretch).
+ *
+ * Everything is wrapped by the caller: a failure here must never fail the video export.
+ */
+object TimelineAudioEncoder {
+
+    const val SAMPLE_RATE = 44100
+    const val CHANNELS = 2
+    private const val BIT_RATE = 128_000
+    private const val MAX_SECONDS = 300.0
+
+    data class Sample(val data: ByteArray, val ptsUs: Long, val flags: Int)
+    data class EncodedAudio(val format: MediaFormat, val samples: List<Sample>)
+
+    private data class Decoded(val pcm: ShortArray, val sampleRate: Int, val channels: Int)
+
+    /** Returns null when the timeline has no audible audio, or when anything goes wrong. */
+    fun encode(
+        clips: List<ResolvedClip>,
+        assets: Map<String, MediaAsset>,
+        trackStates: Map<TimelineTrack, TrackState>,
+        fromSec: Double,
+        toSec: Double
+    ): EncodedAudio? {
+        val audible = clips.filter { rc ->
+            val ts = trackStates[rc.clip.track]
+            rc.clip.track.isAudio &&
+                rc.clip.assetId != null &&
+                ts?.muted != true &&
+                ts?.hidden != true &&
+                rc.end > fromSec &&
+                rc.start < toSec
+        }
+        if (audible.isEmpty()) return null
+
+        val pcm = mix(audible, assets, trackStates, fromSec, toSec) ?: return null
+        return encodePcm(pcm)
+    }
+
+    // ---------------------------------------------------------------- mixing
+
+    private fun mix(
+        clips: List<ResolvedClip>,
+        assets: Map<String, MediaAsset>,
+        trackStates: Map<TimelineTrack, TrackState>,
+        fromSec: Double,
+        toSec: Double
+    ): ShortArray? {
+        val duration = (toSec - fromSec).coerceIn(0.0, MAX_SECONDS)
+        if (duration <= 0.0) return null
+        val totalFrames = (duration * SAMPLE_RATE).toInt().coerceAtLeast(1)
+        val accumulator = FloatArray(totalFrames * CHANNELS)
+
+        var mixedAnything = false
+
+        for (rc in clips) {
+            val clip = rc.clip
+            val asset = clip.assetId?.let { assets[it] } ?: continue
+            val path = asset.localPath ?: continue
+            if (!File(path).exists()) continue
+
+            val decoded = decodePcm(path) ?: continue
+
+            val startFrame = ((rc.start - fromSec) * SAMPLE_RATE).toInt().coerceAtLeast(0)
+            val endFrame = ((rc.end - fromSec) * SAMPLE_RATE).toInt().coerceAtMost(totalFrames)
+            if (endFrame <= startFrame) continue
+
+            val baseGain = (clip.volume / 100.0).coerceIn(0.0, 2.0)
+            for (n in startFrame until endFrame) {
+                val timelineSec = fromSec + n.toDouble() / SAMPLE_RATE
+                val localT = timelineSec - rc.start
+                if (localT < 0.0) continue
+
+                val srcSec = clip.trimIn + localT * clip.speed
+                val srcFrame = (srcSec * decoded.sampleRate).toInt()
+                if (srcFrame < 0) continue
+                val srcIndex = srcFrame * decoded.channels
+                if (srcIndex + decoded.channels > decoded.pcm.size) continue
+
+                val gain = (baseGain * TimelineEngine.audioEnvelope(clip, localT, rc.duration)).toFloat()
+                if (gain == 0f) continue
+
+                val outBase = n * CHANNELS
+                for (ch in 0 until CHANNELS) {
+                    val srcCh = if (ch < decoded.channels) ch else 0
+                    accumulator[outBase + ch] += (decoded.pcm[srcIndex + srcCh] / 32768f) * gain
+                }
+                mixedAnything = true
+            }
+        }
+
+        if (!mixedAnything) return null
+
+        val out = ShortArray(accumulator.size)
+        for (i in accumulator.indices) {
+            out[i] = (accumulator[i].coerceIn(-1f, 1f) * 32767f).toInt().toShort()
+        }
+        return out
+    }
+
+    // --------------------------------------------------------------- decoding
+
+    private fun decodePcm(path: String): Decoded? {
+        val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
+        try {
+            extractor.setDataSource(path)
+            var trackIndex = -1
+            var format: MediaFormat? = null
+            for (i in 0 until extractor.trackCount) {
+                val f = extractor.getTrackFormat(i)
+                val mime = f.getString(MediaFormat.KEY_MIME) ?: continue
+                if (mime.startsWith("audio/")) {
+                    trackIndex = i
+                    format = f
+                    break
+                }
+            }
+            if (trackIndex < 0 || format == null) return null
+            val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
+
+            extractor.selectTrack(trackIndex)
+            codec = MediaCodec.createDecoderByType(mime)
+            codec.configure(format, null, null, 0)
+            codec.start()
+
+            var sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+
+            val chunks = ArrayList<ShortArray>()
+            val info = MediaCodec.BufferInfo()
+            var inputDone = false
+            var outputDone = false
+
+            while (!outputDone) {
+                if (!inputDone) {
+                    val inIdx = codec.dequeueInputBuffer(10_000L)
+                    if (inIdx >= 0) {
+                        val buffer = codec.getInputBuffer(inIdx)
+                        val size = if (buffer != null) extractor.readSampleData(buffer, 0) else -1
+                        if (size < 0) {
+                            codec.queueInputBuffer(inIdx, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inputDone = true
+                        } else {
+                            codec.queueInputBuffer(inIdx, 0, size, extractor.sampleTime, 0)
+                            extractor.advance()
+                        }
+                    }
+                }
+
+                val outIdx = codec.dequeueOutputBuffer(info, 10_000L)
+                when {
+                    outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        val of = codec.outputFormat
+                        sampleRate = of.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        channels = of.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                    }
+                    outIdx >= 0 -> {
+                        if (info.size > 0) {
+                            val outBuf = codec.getOutputBuffer(outIdx)
+                            if (outBuf != null) {
+                                outBuf.position(info.offset)
+                                outBuf.limit(info.offset + info.size)
+                                val shorts = ShortArray(info.size / 2)
+                                outBuf.asShortBuffer().get(shorts)
+                                chunks.add(shorts)
+                            }
+                        }
+                        codec.releaseOutputBuffer(outIdx, false)
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+                    }
+                }
+            }
+
+            if (chunks.isEmpty()) return null
+            val total = chunks.sumOf { it.size }
+            val pcm = ShortArray(total)
+            var offset = 0
+            for (chunk in chunks) {
+                chunk.copyInto(pcm, offset)
+                offset += chunk.size
+            }
+            return Decoded(pcm, sampleRate.coerceAtLeast(8000), channels.coerceIn(1, 2))
+        } catch (e: Exception) {
+            return null
+        } finally {
+            runCatching { codec?.stop() }
+            runCatching { codec?.release() }
+            runCatching { extractor.release() }
+        }
+    }
+
+    // --------------------------------------------------------------- encoding
+
+    private fun encodePcm(pcm: ShortArray): EncodedAudio? {
+        val totalFrames = pcm.size / CHANNELS
+        if (totalFrames <= 0) return null
+
+        var encoder: MediaCodec? = null
+        try {
+            val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SAMPLE_RATE, CHANNELS).apply {
+                setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+                setInteger(MediaFormat.KEY_BIT_RATE, BIT_RATE)
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
+            }
+            encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
+            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            encoder.start()
+
+            var outputFormat: MediaFormat? = null
+            val samples = ArrayList<Sample>()
+            val info = MediaCodec.BufferInfo()
+
+            var framePos = 0
+            var inputDone = false
+            var outputDone = false
+
+            fun ptsUs(frame: Int): Long = (frame.toLong() * 1_000_000L) / SAMPLE_RATE
+
+            while (!outputDone) {
+                if (!inputDone) {
+                    val inIdx = encoder.dequeueInputBuffer(10_000L)
+                    if (inIdx >= 0) {
+                        val buffer = encoder.getInputBuffer(inIdx)
+                        if (buffer == null) {
+                            inputDone = true
+                        } else {
+                            buffer.clear()
+                            val remaining = totalFrames - framePos
+                            if (remaining <= 0) {
+                                encoder.queueInputBuffer(
+                                    inIdx, 0, 0, ptsUs(framePos), MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                                )
+                                inputDone = true
+                            } else {
+                                val capacityFrames = buffer.capacity() / (2 * CHANNELS)
+                                val frames = min(min(1024, remaining), capacityFrames.coerceAtLeast(1))
+                                val slice = ShortArray(frames * CHANNELS)
+                                System.arraycopy(pcm, framePos * CHANNELS, slice, 0, frames * CHANNELS)
+                                buffer.asShortBuffer().put(slice)
+                                encoder.queueInputBuffer(
+                                    inIdx, 0, frames * CHANNELS * 2, ptsUs(framePos), 0
+                                )
+                                framePos += frames
+                            }
+                        }
+                    }
+                }
+
+                val outIdx = encoder.dequeueOutputBuffer(info, 10_000L)
+                when {
+                    outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        outputFormat = encoder.outputFormat
+                    }
+                    outIdx >= 0 -> {
+                        if (info.size > 0 && (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
+                            val outBuf = encoder.getOutputBuffer(outIdx)
+                            if (outBuf != null) {
+                                outBuf.position(info.offset)
+                                outBuf.limit(info.offset + info.size)
+                                val bytes = ByteArray(info.size)
+                                outBuf.get(bytes)
+                                samples.add(Sample(bytes, info.presentationTimeUs, info.flags))
+                            }
+                        }
+                        encoder.releaseOutputBuffer(outIdx, false)
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) outputDone = true
+                    }
+                }
+            }
+
+            val fmt = outputFormat ?: return null
+            if (samples.isEmpty()) return null
+            return EncodedAudio(fmt, samples)
+        } catch (e: Exception) {
+            return null
+        } finally {
+            runCatching { encoder?.stop() }
+            runCatching { encoder?.release() }
+        }
+    }
+}

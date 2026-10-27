@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.editpro.studio.media.GalleryPublisher
 import com.editpro.studio.media.MediaEngine
 import com.editpro.studio.media.NativeVideoExporter
+import com.editpro.studio.media.PreviewAudioEngine
 import com.editpro.studio.model.AssetKind
 import com.editpro.studio.model.AudioGearPreset
 import com.editpro.studio.model.CameraRig
@@ -194,6 +195,7 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
     private var playbackJob: Job? = null
     private var autosaveJob: Job? = null
     private var exportJob: Job? = null
+    private val previewAudio = PreviewAudioEngine()
 
     init {
         loadPersistedPreferences()
@@ -1341,7 +1343,21 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
         val s = _uiState.value
         val clamped = timeSec.coerceIn(0.0, max(0.0, s.durationSec))
         _uiState.update { it.copy(playheadSec = clamped) }
+        // While playing, re-cue the audio so it follows the new position.
+        if (s.isPlaying) {
+            previewAudio.start(
+                scope = viewModelScope,
+                clips = s.resolvedClips,
+                assets = s.assetsById,
+                audibleTracks = audibleAudioTracks(),
+                fromSec = clamped
+            )
+        }
     }
+
+    /** Audio tracks that should currently be heard (mute, hide and solo resolved). */
+    private fun audibleAudioTracks(): Set<TimelineTrack> =
+        listOf(TimelineTrack.AUDIO, TimelineTrack.AUDIO2).filter { isTrackAudible(it) }.toSet()
 
     fun togglePlayPause() {
         val s = _uiState.value
@@ -1357,15 +1373,29 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
             _uiState.update { it.copy(playheadSec = 0.0) }
         }
         _uiState.update { it.copy(isPlaying = true) }
+
+        // Cue the audio for everything from the playhead onward.
+        previewAudio.start(
+            scope = viewModelScope,
+            clips = s.resolvedClips,
+            assets = s.assetsById,
+            audibleTracks = audibleAudioTracks(),
+            fromSec = _uiState.value.playheadSec
+        )
+
         playbackJob?.cancel()
         playbackJob = viewModelScope.launch {
             var lastMs = System.currentTimeMillis()
+            var tick = 0
             while (isActive && _uiState.value.isPlaying) {
                 delay(16L) // ~60fps frame ticker
                 val now = System.currentTimeMillis()
                 val dt = ((now - lastMs) / 1000.0).coerceIn(0.0, 0.1)
                 lastMs = now
                 val cur = _uiState.value
+                tick++
+                // Refresh fades/automation a few times a second rather than every frame.
+                if (tick % 6 == 0) previewAudio.updateVolumes(cur.resolvedClips, cur.playheadSec)
                 val nextTime = cur.playheadSec + dt
                 if (nextTime >= cur.durationSec) {
                     _uiState.update { it.copy(playheadSec = cur.durationSec, isPlaying = false) }
@@ -1374,11 +1404,13 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
                     _uiState.update { it.copy(playheadSec = nextTime) }
                 }
             }
+            previewAudio.stop()
         }
     }
 
     fun pausePlayback() {
         playbackJob?.cancel()
+        previewAudio.stop()
         _uiState.update { it.copy(isPlaying = false) }
     }
 
@@ -1947,6 +1979,11 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearConfirm() {
         _uiState.update { it.copy(pendingConfirm = null) }
+    }
+
+    override fun onCleared() {
+        previewAudio.stop()
+        super.onCleared()
     }
 
     // -------------------------------------------------------------------------

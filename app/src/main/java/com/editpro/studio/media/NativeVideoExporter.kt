@@ -122,6 +122,17 @@ object NativeVideoExporter {
                 }
             }
 
+            // Mix and encode the timeline's audio into an AAC track. Deliberately wrapped: if
+            // anything in the audio path fails, the video must still export (just silent).
+            val encodedAudio = try {
+                TimelineAudioEncoder.encode(started, assetsById, trackStates, fromSec, toSec)
+            } catch (_: Exception) {
+                null
+            }
+            if (encodedAudio != null) {
+                onProgress(3, "Audio mixed and encoded (AAC · stereo · 44.1 kHz).")
+            }
+
             val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
                 setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
@@ -135,6 +146,7 @@ object NativeVideoExporter {
 
             val muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             var trackIndex = -1
+            var audioTrackIndex = -1
             var muxerStarted = false
             val bufferInfo = MediaCodec.BufferInfo()
 
@@ -159,8 +171,23 @@ object NativeVideoExporter {
                     } else if (outIdx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                         if (!muxerStarted) {
                             trackIndex = muxer.addTrack(encoder.outputFormat)
+                            if (encodedAudio != null) {
+                                audioTrackIndex = muxer.addTrack(encodedAudio.format)
+                            }
                             muxer.start()
                             muxerStarted = true
+                            // Audio is fully encoded up-front, so it can be written straight away.
+                            if (encodedAudio != null && audioTrackIndex >= 0) {
+                                for (sample in encodedAudio.samples) {
+                                    val audioInfo = MediaCodec.BufferInfo()
+                                    audioInfo.set(0, sample.data.size, sample.ptsUs, sample.flags)
+                                    muxer.writeSampleData(
+                                        audioTrackIndex,
+                                        ByteBuffer.wrap(sample.data),
+                                        audioInfo
+                                    )
+                                }
+                            }
                         }
                     } else if (outIdx >= 0) {
                         val encodedData: ByteBuffer? = encoder.getOutputBuffer(outIdx)
