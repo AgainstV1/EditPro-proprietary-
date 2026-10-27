@@ -2,6 +2,27 @@
 
 All notable changes to Edit Pro Studio (Android). Newest first.
 
+## 2.3.0 — unreleased
+
+### Fixed
+- **Keyboard shortcuts never fired at all.** Space, S, Backspace/Delete and the rest were bound
+  correctly, but Compose only dispatches hardware key events to a *focused* node and nothing in
+  the app ever requested focus. The workspace root now takes focus when the editor opens and
+  reclaims it whenever a dialog closes. This was one root cause behind three reported bugs.
+- **Library tiles had no thumbnails.** Images now decode from their local copy and videos use the
+  first extracted filmstrip frame, with a play badge; audio and solids keep their labels.
+- **The export sheet was oversized.** It is now a compact card capped at 400dp: a single summary
+  line (resolution · fps · aspect · duration), settings behind an *Options* toggle, and progress
+  only while rendering. The unused auto-duck checkbox was removed — ducking was never applied.
+- **After an export the sheet showed too much.** It now collapses to "Saved to Photos" with
+  exactly two actions: **Close** and **Share**. Reopening it offers a fresh export.
+
+### Added
+- **Drag assets onto the timeline.** Long-press a library tile to pick it up; a ghost follows the
+  pointer, and the drop point picks the track (vertically) and the time (horizontally). Dropping
+  outside the timeline, or onto a track that cannot hold that media kind, falls back to the
+  asset's natural track. Double-tap still appends at the end of the track.
+
 ## 2.2.0 — unreleased
 
 Fixes for four reported problems. No new features.
