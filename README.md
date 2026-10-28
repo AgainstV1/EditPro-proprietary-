@@ -1,6 +1,7 @@
 # Edit Pro Studio
 
-[![Android CI](https://github.com/AgainstV1/EditPro-proprietary-/actions/workflows/android-build.yml/badge.svg
+[![Android CI](https://github.com/AgainstV1/editpro-studio/actions/workflows/android-build.yml/badge.svg?branch=main)](https://github.com/AgainstV1/editpro-studio/actions/workflows/android-build.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-informational.svg)](LICENSE)
 
 A multi-track video editor for Android tablets, written in Kotlin with Jetpack Compose. Everything
 happens on the device: media is decoded, composited and encoded through Android's own
@@ -64,8 +65,8 @@ recent-project list, and confirmation before anything would discard current work
 ## Getting started
 
 ```bash
-git clone https://github.com/AgainstV1/EditPro-proprietary-.git
-cd EditPro-proprietary-
+git clone https://github.com/AgainstV1/editpro-studio.git
+cd editpro-studio
 
 # Point Gradle at your SDK (Android Studio writes this for you)
 echo "sdk.dir=$HOME/Android/Sdk" > local.properties
@@ -113,14 +114,19 @@ Actively used, but early. Worth knowing before relying on it:
 - **Some controls are not yet wired to the render output.** Rather than pretend, they are labelled
   "not rendered yet" in the inspector. The full list, and the manual test checklist, live in
   [docs/MAINTENANCE.md](docs/MAINTENANCE.md).
-- **No licence and no distribution model.** This is a private tool; there is no licence file and no
-  intention to publish it to a store.
+- **No store distribution.** Builds are distributed as APKs from CI rather than through a store.
+  That is a choice, not a restriction — the project is MIT licensed.
 
 ## Documentation
 
 - [CHANGELOG.md](CHANGELOG.md) — what changed in each version
 - [docs/MAINTENANCE.md](docs/MAINTENANCE.md) — verification notes, manual test checklist,
   preview-versus-export behaviour, and known gaps
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). You are free to use, modify and redistribute this software, including
+commercially, provided the copyright notice and permission notice are retained.
 
 ## Built with
 

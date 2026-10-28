@@ -2,6 +2,27 @@
 
 All notable changes to Edit Pro Studio (Android). Newest first.
 
+## 2.4.0 — unreleased
+
+### Changed
+- **New app icon.** The placeholder film-strip glyph is replaced by the supplied hexagonal mark,
+  built as a real adaptive icon (foreground at five densities, kept inside the 66% safe zone) with
+  legacy launcher icons for launchers that ignore adaptive icons.
+- **macOS chrome removed.** The three window dots in the header are gone — they read as buttons,
+  mean nothing on Android and cluttered the bar. Full screen moved to the Tools panel. All
+  Cmd/Opt/Ctrl/Shift glyph badges are gone too; mode hints read `Alt+1` instead of the Option
+  symbol.
+- **The clip context menu is now configurable and looks like a desktop menu.** Compact rows, the
+  shortcut hint right-aligned, destructive actions tinted, separators between groups. Add, remove
+  and reorder entries from *Customise clip menu* in the Tools panel; defaults are clip-editing
+  actions only, with mode switches and camera/audio rigs opt-in.
+- **Scrubbing responds on the first movement** — the ruler seeks on drag-start as well as on drag.
+- **Repository** renamed from `EditPro-proprietary-` to `editpro-studio` and released under MIT.
+
+### Added
+- **Scrub-follow mode (Alt+F).** While enabled, moving the mouse over the timeline moves the
+  playhead with no click. Persisted across launches.
+
 ## 2.3.0 — unreleased
 
 ### Fixed
