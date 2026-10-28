@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -265,6 +266,31 @@ fun TimelinePanel(
                         .weight(1f)
                         .fillMaxHeight()
                         .horizontalScroll(hScroll)
+                        .then(
+                            // Optional scrub mode: with a mouse, just moving over the timeline
+                            // moves the playhead - no click needed.
+                            if (state.scrubFollow) {
+                                Modifier.pointerInput(state.scrubFollow, effectiveScaleDpPerSec) {
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            if (event.type == PointerEventType.Move &&
+                                                !event.buttons.isPrimaryPressed
+                                            ) {
+                                                val x = event.changes.firstOrNull()?.position?.x
+                                                if (x != null) {
+                                                    val sec = ((x + hScroll.value) / density.density) /
+                                                        effectiveScaleDpPerSec
+                                                    onSeek(max(0.0, sec))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                Modifier
+                            }
+                        )
                 ) {
                     val localDensity = LocalDensity.current
                     Column(
@@ -425,11 +451,19 @@ private fun TimelineRuler(
                 }
             }
             .pointerInput(scaleDpPerSec) {
-                detectDragGestures { change, _ ->
-                    change.consume()
-                    val sec = (change.position.x / density.density) / scaleDpPerSec
-                    onSeek(max(0.0, sec))
-                }
+                detectDragGestures(
+                    // Snap to the press point straight away, then follow the pointer, so a scrub
+                    // responds on the first movement instead of lagging behind it.
+                    onDragStart = { offset ->
+                        val sec = (offset.x / density.density) / scaleDpPerSec
+                        onSeek(max(0.0, sec))
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        val sec = (change.position.x / density.density) / scaleDpPerSec
+                        onSeek(max(0.0, sec))
+                    }
+                )
             }
     ) {
         var t = 0.0

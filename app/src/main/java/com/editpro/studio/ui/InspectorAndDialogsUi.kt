@@ -1093,7 +1093,8 @@ fun EditingToolsDialog(
     onToggleCompact: () -> Unit,
     onOpenShortcuts: () -> Unit,
     onToggleFullscreen: () -> Unit,
-    onOpenClipMenu: () -> Unit
+    onOpenClipMenu: () -> Unit,
+    onToggleScrubFollow: () -> Unit
 ) {
     val palette = LocalEditProPalette.current
     Dialog(onDismissRequest = onDismiss) {
@@ -1124,6 +1125,10 @@ fun EditingToolsDialog(
             InspectorActionButton("Keyboard & mouse shortcuts") { onDismiss(); onOpenShortcuts() }
             InspectorActionButton("Toggle full screen") { onDismiss(); onToggleFullscreen() }
             InspectorActionButton("Customise clip menu") { onDismiss(); onOpenClipMenu() }
+            InspectorActionButton(
+                if (state.scrubFollow) "Playhead follows cursor: On (Alt+F)"
+                else "Playhead follows cursor: Off (Alt+F)"
+            ) { onToggleScrubFollow() }
             InspectorActionButton("＋ Add solid colour clip") { onDismiss(); onOpenSolidModal() }
             InspectorActionButton("Import subtitles (SRT)") { onDismiss(); onImportSrtClick() }
             InspectorActionButton("Add marker at playhead") { onDismiss(); onAddMarker() }
@@ -1494,6 +1499,7 @@ fun ShortcutsDialog(onDismiss: () -> Unit) {
         "Preset packs" to "Ctrl+Alt+P",
         "Workspace modes" to "Alt+1 to Alt+4",
         "Toggle scopes" to "Alt+S",
+        "Playhead follows cursor" to "Alt+F",
         "Light / dark theme" to "Alt+L",
         "Clip context menu" to "Right-click or long-press"
     )

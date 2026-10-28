@@ -333,6 +333,7 @@ fun EditProWorkspaceScreen(
                         Key.Three -> { viewModel.setWorkspaceMode(WorkspaceMode.MOTION); return@onPreviewKeyEvent true }
                         Key.Four -> { viewModel.setWorkspaceMode(WorkspaceMode.MUSIC); return@onPreviewKeyEvent true }
                         Key.S -> { viewModel.toggleScopesPinned(); return@onPreviewKeyEvent true }
+                        Key.F -> { viewModel.toggleScrubFollow(); return@onPreviewKeyEvent true }
                         else -> Unit
                     }
                 }
@@ -615,7 +616,8 @@ fun EditProWorkspaceScreen(
                 onToggleCompact = viewModel::toggleCompactTimeline,
                 onOpenShortcuts = { viewModel.setShowShortcutsModal(true) },
                 onToggleFullscreen = toggleFullscreen,
-                onOpenClipMenu = { viewModel.setShowClipMenuModal(true) }
+                onOpenClipMenu = { viewModel.setShowClipMenuModal(true) },
+                onToggleScrubFollow = viewModel::toggleScrubFollow
             )
         }
 

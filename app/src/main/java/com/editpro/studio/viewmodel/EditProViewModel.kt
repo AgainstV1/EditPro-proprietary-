@@ -141,7 +141,9 @@ data class EditorUiState(
     val recentProjects: List<RecentProject> = emptyList(),
     /** Ordered ids of the clip context-menu entries the user has enabled. */
     val clipMenuOrder: List<String> = ClipMenuAction.defaultOrder,
-    val showClipMenuModal: Boolean = false
+    val showClipMenuModal: Boolean = false,
+    /** When on, moving the mouse over the timeline moves the playhead (Alt+F). */
+    val scrubFollow: Boolean = false
 ) {
     val assetsById: Map<String, MediaAsset>
         get() = assets.associateBy { it.id }
@@ -213,6 +215,7 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
         val autoFit = prefs.getBoolean("timeline_autofit", true)
         val compact = prefs.getBoolean("timeline_compact", false)
         val follow = prefs.getBoolean("follow_playhead", true)
+        val scrub = prefs.getBoolean("scrub_follow", false)
         val light = prefs.getBoolean("light_theme", false)
         val modeId = prefs.getString("workspace_mode", "edit") ?: "edit"
         val mode = WorkspaceMode.entries.find { it.id == modeId } ?: WorkspaceMode.EDIT
@@ -222,6 +225,7 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
                 timelineAutoFit = autoFit,
                 timelineCompact = compact,
                 timelineFollowPlayhead = follow,
+                scrubFollow = scrub,
                 isLightTheme = light,
                 workspaceMode = mode,
                 activeInspectorTab = mode.defaultInspectorTab()
@@ -2093,6 +2097,13 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun setShowClipMenuModal(show: Boolean) = _uiState.update { it.copy(showClipMenuModal = show) }
+
+    fun toggleScrubFollow() {
+        val next = !_uiState.value.scrubFollow
+        _uiState.update { it.copy(scrubFollow = next) }
+        prefs.edit().putBoolean("scrub_follow", next).apply()
+        showToast(if (next) "Playhead follows the cursor" else "Scrub-follow off")
+    }
 
     private fun loadClipMenu() {
         val raw = prefs.getString("clip_menu_order", null) ?: return
