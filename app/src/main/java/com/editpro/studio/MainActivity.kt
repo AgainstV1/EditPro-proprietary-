@@ -97,7 +97,7 @@ import com.editpro.studio.ui.EditingToolsDialog
 import com.editpro.studio.ui.ExportVideoDialog
 import com.editpro.studio.ui.InspectorPanel
 import com.editpro.studio.ui.LocalEditProPalette
-import com.editpro.studio.ui.MacTrafficLightsBrand
+import com.editpro.studio.ui.AppWordmark
 import com.editpro.studio.ui.PresetPacksHubDialog
 import com.editpro.studio.ui.PreviewCenterPanel
 import com.editpro.studio.ui.ProjectHomeScreen
@@ -278,6 +278,20 @@ fun EditProWorkspaceScreen(
         viewModel.addAssetToTimeline(asset, target, at)
     }
 
+    // Immersive full screen, now reached from the Tools panel rather than a macOS-style dot.
+    val toggleFullscreen: () -> Unit = {
+        immersive = !immersive
+        hostActivity?.let { act ->
+            val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
+            if (immersive) {
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            } else {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
     // Compose only delivers hardware key events to a focused node. Nothing in the app ever took
     // focus, so Space / S / Backspace / Delete never reached the handler at all. The workspace
     // root now takes focus itself and reclaims it whenever a dialog closes.
@@ -383,22 +397,7 @@ fun EditProWorkspaceScreen(
                     if (viewModel.hasWorkToDiscard()) viewModel.requestConfirm(PendingConfirm.OPEN_PROJECT)
                     else openProjectLauncher.launch(arrayOf("*/*"))
                 },
-                onOpenExport = { viewModel.setShowExportModal(true) },
-                onGoHome = { viewModel.setShowHome(true) },
-                onMinimise = { hostActivity?.moveTaskToBack(true) },
-                onToggleFullscreen = {
-                    immersive = !immersive
-                    hostActivity?.let { act ->
-                        val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
-                        if (immersive) {
-                            controller.hide(WindowInsetsCompat.Type.systemBars())
-                            controller.systemBarsBehavior =
-                                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                        } else {
-                            controller.show(WindowInsetsCompat.Type.systemBars())
-                        }
-                    }
-                }
+                onOpenExport = { viewModel.setShowExportModal(true) }
             )
 
             // Main 3-Pane Split Workspace (Media Library | Preview Center | 5-Tab Inspector)
@@ -613,7 +612,8 @@ fun EditProWorkspaceScreen(
                 onToggleSnap = viewModel::toggleMagneticSnap,
                 onToggleAutoFit = viewModel::toggleAutoFitTimeline,
                 onToggleCompact = viewModel::toggleCompactTimeline,
-                onOpenShortcuts = { viewModel.setShowShortcutsModal(true) }
+                onOpenShortcuts = { viewModel.setShowShortcutsModal(true) },
+                onToggleFullscreen = toggleFullscreen
             )
         }
 
@@ -722,10 +722,7 @@ private fun TopHeaderBar(
     onOpenTools: () -> Unit,
     onSaveProject: () -> Unit,
     onOpenProject: () -> Unit,
-    onOpenExport: () -> Unit,
-    onGoHome: () -> Unit,
-    onMinimise: () -> Unit,
-    onToggleFullscreen: () -> Unit
+    onOpenExport: () -> Unit
 ) {
     val palette = LocalEditProPalette.current
     Row(
@@ -738,12 +735,7 @@ private fun TopHeaderBar(
             .border(0.5.dp, palette.line)
             .padding(horizontal = 14.dp)
     ) {
-        MacTrafficLightsBrand(
-            title = "Edit Pro",
-            onClose = onGoHome,
-            onMinimise = onMinimise,
-            onFullscreen = onToggleFullscreen
-        )
+        AppWordmark(title = "Edit Pro")
 
         BasicTextField(
             value = state.projectName,
@@ -813,12 +805,12 @@ private fun TopHeaderBar(
         Spacer(modifier = Modifier.weight(1f))
 
         SmileIconButton(icon = SmileIconType.DEMO, accessibleLabel = "Demo Reel", onClick = onLoadDemoReel)
-        SmileIconButton(icon = SmileIconType.NEW_PROJ, accessibleLabel = "New", shortcutBadge = "⌘N", onClick = onNewProject)
-        SmileIconButton(icon = SmileIconType.PRESETS, accessibleLabel = "Presets", shortcutBadge = "⌃⌥P", onClick = onOpenPresets)
-        SmileIconButton(icon = SmileIconType.TOOLS, accessibleLabel = "Tools", shortcutBadge = "⌘K", onClick = onOpenTools)
-        SmileIconButton(icon = SmileIconType.SAVE_PROJ, accessibleLabel = "Save", shortcutBadge = "⌘S", onClick = onSaveProject)
-        SmileIconButton(icon = SmileIconType.OPEN_PROJ, accessibleLabel = "Open", shortcutBadge = "⌘O", onClick = onOpenProject)
-        SmileIconButton(icon = SmileIconType.EXPORT_VID, accessibleLabel = "Export", shortcutBadge = "⌘E", isPrimary = true, onClick = onOpenExport)
+        SmileIconButton(icon = SmileIconType.NEW_PROJ, accessibleLabel = "New", onClick = onNewProject)
+        SmileIconButton(icon = SmileIconType.PRESETS, accessibleLabel = "Presets", onClick = onOpenPresets)
+        SmileIconButton(icon = SmileIconType.TOOLS, accessibleLabel = "Tools", onClick = onOpenTools)
+        SmileIconButton(icon = SmileIconType.SAVE_PROJ, accessibleLabel = "Save", onClick = onSaveProject)
+        SmileIconButton(icon = SmileIconType.OPEN_PROJ, accessibleLabel = "Open", onClick = onOpenProject)
+        SmileIconButton(icon = SmileIconType.EXPORT_VID, accessibleLabel = "Export", isPrimary = true, onClick = onOpenExport)
     }
 }
 
@@ -875,7 +867,6 @@ private fun MediaLibraryPanel(
             SmileIconButton(
                 icon = SmileIconType.IMPORT_MEDIA,
                 accessibleLabel = "＋ Import",
-                shortcutBadge = "⌘I",
                 isPrimary = true,
                 onClick = onImportClick
             )

@@ -385,49 +385,20 @@ fun SmileIconButton(
     }
 }
 
+/**
+ * Plain app wordmark.
+ *
+ * This used to draw three macOS-style window dots. They read as buttons, have no meaning on
+ * Android, and only added clutter, so they are gone; the actions they carried now live in the
+ * Tools panel.
+ */
 @Composable
-fun MacTrafficLightsBrand(
-    title: String = "Edit Pro",
-    onClose: (() -> Unit)? = null,
-    onMinimise: (() -> Unit)? = null,
-    onFullscreen: (() -> Unit)? = null
-) {
+fun AppWordmark(title: String = "Edit Pro") {
     val palette = LocalEditProPalette.current
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        TrafficLight(Color(0xFFFF5F57), "Close project", onClose)
-        TrafficLight(Color(0xFFFEBC2E), "Minimise app", onMinimise)
-        TrafficLight(Color(0xFF28C840), "Toggle full screen", onFullscreen)
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = title,
-            color = palette.text,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-    }
-}
-
-/** One macOS-style window dot. Draws 11dp but keeps a 26dp hit area so it is actually tappable. */
-@Composable
-private fun TrafficLight(color: Color, label: String, onClick: (() -> Unit)?) {
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .size(26.dp)
-            .then(
-                if (onClick != null) {
-                    Modifier
-                        .clip(CircleShape)
-                        .clickable(role = Role.Button, onClickLabel = label, onClick = onClick)
-                        .semantics { contentDescription = label }
-                } else {
-                    Modifier
-                }
-            )
-    ) {
-        Box(modifier = Modifier.size(11.dp).background(color, CircleShape))
-    }
+    Text(
+        text = title,
+        color = palette.text,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold
+    )
 }

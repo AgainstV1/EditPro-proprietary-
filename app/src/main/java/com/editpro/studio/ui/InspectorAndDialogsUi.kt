@@ -1090,7 +1090,8 @@ fun EditingToolsDialog(
     onToggleSnap: () -> Unit,
     onToggleAutoFit: () -> Unit,
     onToggleCompact: () -> Unit,
-    onOpenShortcuts: () -> Unit
+    onOpenShortcuts: () -> Unit,
+    onToggleFullscreen: () -> Unit
 ) {
     val palette = LocalEditProPalette.current
     Dialog(onDismissRequest = onDismiss) {
@@ -1119,6 +1120,7 @@ fun EditingToolsDialog(
                 onDismiss(); onOpenPresets()
             }
             InspectorActionButton("Keyboard & mouse shortcuts") { onDismiss(); onOpenShortcuts() }
+            InspectorActionButton("Toggle full screen") { onDismiss(); onToggleFullscreen() }
             InspectorActionButton("＋ Add solid colour clip") { onDismiss(); onOpenSolidModal() }
             InspectorActionButton("Import subtitles (SRT)") { onDismiss(); onImportSrtClick() }
             InspectorActionButton("Add marker at playhead") { onDismiss(); onAddMarker() }

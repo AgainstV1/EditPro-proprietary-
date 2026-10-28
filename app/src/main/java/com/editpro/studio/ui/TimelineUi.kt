@@ -151,9 +151,9 @@ fun TimelinePanel(
         ) {
             SmileIconButton(icon = SmileIconType.ADD_TEXT, accessibleLabel = "＋ Text", shortcutBadge = "T", onClick = onAddText)
             SmileIconButton(icon = SmileIconType.SPLIT, accessibleLabel = "Split (S)", shortcutBadge = "S", onClick = onSplit)
-            SmileIconButton(icon = SmileIconType.TRASH, accessibleLabel = "Delete", shortcutBadge = "⌫", isDanger = true, onClick = onDelete)
-            SmileIconButton(icon = SmileIconType.UNDO, accessibleLabel = "Undo", shortcutBadge = "⌘Z", enabled = state.canUndo, onClick = onUndo)
-            SmileIconButton(icon = SmileIconType.REDO, accessibleLabel = "Redo", shortcutBadge = "⇧⌘Z", enabled = state.canRedo, onClick = onRedo)
+            SmileIconButton(icon = SmileIconType.TRASH, accessibleLabel = "Delete", isDanger = true, onClick = onDelete)
+            SmileIconButton(icon = SmileIconType.UNDO, accessibleLabel = "Undo (Ctrl+Z)", enabled = state.canUndo, onClick = onUndo)
+            SmileIconButton(icon = SmileIconType.REDO, accessibleLabel = "Redo (Ctrl+Shift+Z)", enabled = state.canRedo, onClick = onRedo)
 
             Spacer(modifier = Modifier.weight(1f))
 
@@ -696,10 +696,10 @@ private fun TimelineClipBlock(
             DropdownMenuItem(text = { Text("Reset effects & transform") }, onClick = { showContextMenu = false; onResetProps() })
             DropdownMenuItem(text = { Text("Ripple delete") }, onClick = { showContextMenu = false; onRippleDelete() })
             DropdownMenuItem(text = { Text("Delete clip") }, onClick = { showContextMenu = false; onDelete() })
-            DropdownMenuItem(text = { Text("Mode: Normal Editing (⌥1)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.EDIT) })
-            DropdownMenuItem(text = { Text("Mode: Colour Grading & Scopes (⌥2)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.COLOR) })
-            DropdownMenuItem(text = { Text("Mode: Extra Motion & 3D Rigs (⌥3)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.MOTION) })
-            DropdownMenuItem(text = { Text("Mode: Music & 5-Band EQ (⌥4)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.MUSIC) })
+            DropdownMenuItem(text = { Text("Mode: Normal Editing (Alt+1)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.EDIT) })
+            DropdownMenuItem(text = { Text("Mode: Colour Grading & Scopes (Alt+2)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.COLOR) })
+            DropdownMenuItem(text = { Text("Mode: Extra Motion & 3D Rigs (Alt+3)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.MOTION) })
+            DropdownMenuItem(text = { Text("Mode: Music & 5-Band EQ (Alt+4)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.MUSIC) })
             DropdownMenuItem(text = { Text("Apply ARRI Alexa + Cooke S4 Rig") }, onClick = { showContextMenu = false; onApplyEquipmentRig("ARRI Alexa Mini LF · Cooke S4 35mm") })
             DropdownMenuItem(text = { Text("Apply RED V-Raptor 2x Anamorphic Rig") }, onClick = { showContextMenu = false; onApplyEquipmentRig("RED V-Raptor 8K · Atlas Orion 2x Anamorphic") })
             DropdownMenuItem(text = { Text("Apply SSL Master Bus Audio Glue") }, onClick = { showContextMenu = false; onApplyAudioGear("SSL 4000G Master Bus Glue") })

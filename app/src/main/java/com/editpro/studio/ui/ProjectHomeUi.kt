@@ -66,7 +66,7 @@ fun ProjectHomeScreen(
                 .border(0.5.dp, palette.line, RoundedCornerShape(18.dp))
                 .padding(24.dp)
         ) {
-            MacTrafficLightsBrand(title = "Edit Pro Studio")
+            AppWordmark(title = "Edit Pro Studio")
             Text("Your projects", color = palette.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
             Text(
                 "Android does not let an app browse your storage by itself, so this list is a " +

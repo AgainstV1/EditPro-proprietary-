@@ -40,10 +40,10 @@ enum class TimelineTrack(
 }
 
 enum class WorkspaceMode(val id: String, val label: String, val shortcutHint: String, val description: String) {
-    EDIT("edit", "Normal", "⌥1", "Normal Editing: Cut, Trim, Assemble & Text"),
-    COLOR("color", "Colour", "⌥2", "Colour Grading: 3-Way Wheels, LUTs & Live RGB Scopes"),
-    MOTION("motion", "Motion", "⌥3", "Extra Motion: Bezier Curves, 3D Rigs & Camera Optics"),
-    MUSIC("music", "Music", "⌥4", "Music Editing: 5-Band EQ, Mastering, Ducking & Beat Grid");
+    EDIT("edit", "Normal", "Alt+1", "Normal Editing: Cut, Trim, Assemble & Text"),
+    COLOR("color", "Colour", "Alt+2", "Colour Grading: 3-Way Wheels, LUTs & Live RGB Scopes"),
+    MOTION("motion", "Motion", "Alt+3", "Extra Motion: Bezier Curves, 3D Rigs & Camera Optics"),
+    MUSIC("music", "Music", "Alt+4", "Music Editing: 5-Band EQ, Mastering, Ducking & Beat Grid");
 
     fun defaultInspectorTab(): InspectorTab = when (this) {
         EDIT -> InspectorTab.CLIP
