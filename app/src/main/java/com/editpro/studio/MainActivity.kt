@@ -91,6 +91,7 @@ import com.editpro.studio.model.WorkspaceMode
 import com.editpro.studio.model.formatFileSize
 import com.editpro.studio.model.formatTimecode
 import com.editpro.studio.ui.AlertSheetDialog
+import com.editpro.studio.ui.ClipMenuSettingsDialog
 import com.editpro.studio.ui.ConfirmDialog
 import com.editpro.studio.ui.EditProStudioTheme
 import com.editpro.studio.ui.EditingToolsDialog
@@ -297,7 +298,7 @@ fun EditProWorkspaceScreen(
     // root now takes focus itself and reclaims it whenever a dialog closes.
     val rootFocus = remember { FocusRequester() }
     val anyDialogOpen = state.showExportModal || state.showToolsModal || state.showSolidModal ||
-        state.showPresetsModal || state.showShortcutsModal ||
+        state.showPresetsModal || state.showShortcutsModal || state.showClipMenuModal ||
         state.pendingConfirm != null || state.alertTitle != null
     LaunchedEffect(state.showHome, anyDialogOpen) {
         if (!state.showHome && !anyDialogOpen) {
@@ -613,12 +614,23 @@ fun EditProWorkspaceScreen(
                 onToggleAutoFit = viewModel::toggleAutoFitTimeline,
                 onToggleCompact = viewModel::toggleCompactTimeline,
                 onOpenShortcuts = { viewModel.setShowShortcutsModal(true) },
-                onToggleFullscreen = toggleFullscreen
+                onToggleFullscreen = toggleFullscreen,
+                onOpenClipMenu = { viewModel.setShowClipMenuModal(true) }
             )
         }
 
         if (state.showShortcutsModal) {
             ShortcutsDialog(onDismiss = { viewModel.setShowShortcutsModal(false) })
+        }
+
+        if (state.showClipMenuModal) {
+            ClipMenuSettingsDialog(
+                state = state,
+                onToggle = viewModel::toggleClipMenuItem,
+                onMove = viewModel::moveClipMenuItem,
+                onReset = viewModel::resetClipMenu,
+                onDismiss = { viewModel.setShowClipMenuModal(false) }
+            )
         }
 
         if (state.showSolidModal) {

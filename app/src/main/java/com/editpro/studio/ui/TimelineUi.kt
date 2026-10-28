@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.editpro.studio.model.AssetKind
+import com.editpro.studio.model.ClipMenuAction
 import com.editpro.studio.model.ResolvedClip
 import com.editpro.studio.model.TimelineClip
 import com.editpro.studio.model.TimelineMarker
@@ -493,6 +495,29 @@ private fun TimelineClipBlock(
     val isMultiSelected = c.id in state.selectedClipIds && !isPrimarySelected
     var showContextMenu by remember { mutableStateOf(false) }
 
+    fun runClipMenuAction(action: ClipMenuAction) {
+        when (action) {
+            ClipMenuAction.SPLIT -> onSplit()
+            ClipMenuAction.KEYFRAME -> onAddKeyframe()
+            ClipMenuAction.DUPLICATE -> onDuplicate()
+            ClipMenuAction.COPY_PROPS -> onCopyProps()
+            ClipMenuAction.PASTE_PROPS -> onPasteProps()
+            ClipMenuAction.RESET_PROPS -> onResetProps()
+            ClipMenuAction.RIPPLE_DELETE -> onRippleDelete()
+            ClipMenuAction.DELETE -> onDelete()
+            ClipMenuAction.DETECT_BEATS -> onDetectBeats()
+            ClipMenuAction.PRESET_HUB -> onOpenPresetHub()
+            ClipMenuAction.GRADE_SPLIT -> onToggleGradeSplit()
+            ClipMenuAction.MODE_EDIT -> onSetWorkspaceMode(WorkspaceMode.EDIT)
+            ClipMenuAction.MODE_COLOR -> onSetWorkspaceMode(WorkspaceMode.COLOR)
+            ClipMenuAction.MODE_MOTION -> onSetWorkspaceMode(WorkspaceMode.MOTION)
+            ClipMenuAction.MODE_MUSIC -> onSetWorkspaceMode(WorkspaceMode.MUSIC)
+            ClipMenuAction.RIG_ARRI -> onApplyEquipmentRig("ARRI Alexa Mini LF · Cooke S4 35mm")
+            ClipMenuAction.RIG_RED -> onApplyEquipmentRig("RED V-Raptor 8K · Atlas Orion 2x Anamorphic")
+            ClipMenuAction.AUDIO_SSL -> onApplyAudioGear("SSL 4000G Master Bus Glue")
+        }
+    }
+
     val bgColor = when {
         asset?.kind == AssetKind.COLOR -> try {
             Color(android.graphics.Color.parseColor(asset.colorHex ?: "#2678ff"))
@@ -683,29 +708,82 @@ private fun TimelineClipBlock(
                 }
         )
 
-        // Native Context Menu matching `#fcContextMenu` + v2.0 Pro Suite items
+        // Native Context Menu — built from the user's configured action list, styled compact
+        // with the shortcut hint right-aligned and separators between action groups.
         DropdownMenu(
             expanded = showContextMenu,
-            onDismissRequest = { showContextMenu = false }
+            onDismissRequest = { showContextMenu = false },
+            modifier = Modifier
+                .widthIn(min = 232.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(palette.panel2)
+                .border(0.5.dp, palette.line, RoundedCornerShape(10.dp))
         ) {
-            DropdownMenuItem(text = { Text("Split at playhead") }, onClick = { showContextMenu = false; onSplit() })
-            DropdownMenuItem(text = { Text("Add keyframe at playhead") }, onClick = { showContextMenu = false; onAddKeyframe() })
-            DropdownMenuItem(text = { Text("Duplicate clip") }, onClick = { showContextMenu = false; onDuplicate() })
-            DropdownMenuItem(text = { Text("Copy clip properties") }, onClick = { showContextMenu = false; onCopyProps() })
-            DropdownMenuItem(text = { Text("Paste clip properties") }, onClick = { showContextMenu = false; onPasteProps() })
-            DropdownMenuItem(text = { Text("Reset effects & transform") }, onClick = { showContextMenu = false; onResetProps() })
-            DropdownMenuItem(text = { Text("Ripple delete") }, onClick = { showContextMenu = false; onRippleDelete() })
-            DropdownMenuItem(text = { Text("Delete clip") }, onClick = { showContextMenu = false; onDelete() })
-            DropdownMenuItem(text = { Text("Mode: Normal Editing (Alt+1)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.EDIT) })
-            DropdownMenuItem(text = { Text("Mode: Colour Grading & Scopes (Alt+2)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.COLOR) })
-            DropdownMenuItem(text = { Text("Mode: Extra Motion & 3D Rigs (Alt+3)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.MOTION) })
-            DropdownMenuItem(text = { Text("Mode: Music & 5-Band EQ (Alt+4)") }, onClick = { showContextMenu = false; onSetWorkspaceMode(WorkspaceMode.MUSIC) })
-            DropdownMenuItem(text = { Text("Apply ARRI Alexa + Cooke S4 Rig") }, onClick = { showContextMenu = false; onApplyEquipmentRig("ARRI Alexa Mini LF · Cooke S4 35mm") })
-            DropdownMenuItem(text = { Text("Apply RED V-Raptor 2x Anamorphic Rig") }, onClick = { showContextMenu = false; onApplyEquipmentRig("RED V-Raptor 8K · Atlas Orion 2x Anamorphic") })
-            DropdownMenuItem(text = { Text("Apply SSL Master Bus Audio Glue") }, onClick = { showContextMenu = false; onApplyAudioGear("SSL 4000G Master Bus Glue") })
-            DropdownMenuItem(text = { Text("Detect Audio Beats → Timeline Markers") }, onClick = { showContextMenu = false; onDetectBeats() })
-            DropdownMenuItem(text = { Text("Preset & Equipment Pack Hub…") }, onClick = { showContextMenu = false; onOpenPresetHub() })
-            DropdownMenuItem(text = { Text("Toggle Split-Screen Grade Wipe (\\)") }, onClick = { showContextMenu = false; onToggleGradeSplit() })
+            val actions = state.clipMenuOrder.mapNotNull { ClipMenuAction.fromId(it) }
+            var lastGroup: Int? = null
+            actions.forEach { action ->
+                if (lastGroup != null && action.group != lastGroup) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .height(1.dp)
+                            .background(palette.line)
+                    )
+                }
+                lastGroup = action.group
+                ClipMenuItemRow(
+                    label = action.label,
+                    shortcut = action.shortcut,
+                    destructive = action.destructive
+                ) {
+                    showContextMenu = false
+                    runClipMenuAction(action)
+                }
+            }
+            if (actions.isEmpty()) {
+                ClipMenuItemRow("No actions enabled", null, false) { showContextMenu = false }
+            }
+        }
+    }
+}
+
+/**
+ * One row of the clip context menu: label on the left, shortcut hint right-aligned, destructive
+ * actions tinted. Kept deliberately compact so the menu reads like a desktop menu rather than a
+ * list of full-width buttons.
+ */
+@Composable
+private fun ClipMenuItemRow(
+    label: String,
+    shortcut: String?,
+    destructive: Boolean,
+    onClick: () -> Unit
+) {
+    val palette = LocalEditProPalette.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+    ) {
+        Text(
+            text = label,
+            color = if (destructive) palette.red else palette.text,
+            fontSize = 12.5.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (!shortcut.isNullOrBlank()) {
+            Spacer(modifier = Modifier.width(20.dp))
+            Text(
+                text = shortcut,
+                color = palette.muted,
+                fontSize = 10.5.sp,
+                fontFamily = FontFamily.Monospace
+            )
         }
     }
 }

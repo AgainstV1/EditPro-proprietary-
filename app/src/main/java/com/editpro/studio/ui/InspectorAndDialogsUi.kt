@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.editpro.studio.model.CameraRig
 import com.editpro.studio.model.ClipFilters
+import com.editpro.studio.model.ClipMenuAction
 import com.editpro.studio.model.ExportSettings
 import com.editpro.studio.model.InspectorTab
 import com.editpro.studio.model.LookPreset
@@ -1091,7 +1092,8 @@ fun EditingToolsDialog(
     onToggleAutoFit: () -> Unit,
     onToggleCompact: () -> Unit,
     onOpenShortcuts: () -> Unit,
-    onToggleFullscreen: () -> Unit
+    onToggleFullscreen: () -> Unit,
+    onOpenClipMenu: () -> Unit
 ) {
     val palette = LocalEditProPalette.current
     Dialog(onDismissRequest = onDismiss) {
@@ -1121,6 +1123,7 @@ fun EditingToolsDialog(
             }
             InspectorActionButton("Keyboard & mouse shortcuts") { onDismiss(); onOpenShortcuts() }
             InspectorActionButton("Toggle full screen") { onDismiss(); onToggleFullscreen() }
+            InspectorActionButton("Customise clip menu") { onDismiss(); onOpenClipMenu() }
             InspectorActionButton("＋ Add solid colour clip") { onDismiss(); onOpenSolidModal() }
             InspectorActionButton("Import subtitles (SRT)") { onDismiss(); onImportSrtClick() }
             InspectorActionButton("Add marker at playhead") { onDismiss(); onAddMarker() }
@@ -1353,6 +1356,117 @@ fun ConfirmDialog(
                 InspectorActionButton(confirmLabel, isPrimary = true, modifier = Modifier.width(140.dp), onClick = onConfirm)
             }
         }
+    }
+}
+
+/**
+ * Lets the user choose which actions appear in the clip context menu, and in what order.
+ * Persisted by the view model, so the menu is never a hardcoded wall of options.
+ */
+@Composable
+fun ClipMenuSettingsDialog(
+    state: EditorUiState,
+    onToggle: (String) -> Unit,
+    onMove: (String, Int) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = LocalEditProPalette.current
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .widthIn(max = 420.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(palette.panel)
+                .border(0.5.dp, palette.line, RoundedCornerShape(16.dp))
+                .padding(18.dp)
+        ) {
+            Text("Clip menu", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Choose which actions appear when you right-click a clip, and in what order.",
+                color = palette.muted,
+                fontSize = 11.5.sp
+            )
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                SectionHeader("IN THE MENU")
+                state.clipMenuOrder.forEachIndexed { index, id ->
+                    val action = ClipMenuAction.fromId(id) ?: return@forEachIndexed
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(7.dp))
+                            .background(palette.controlBg)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = action.label,
+                            color = palette.text,
+                            fontSize = 11.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (index > 0) MenuMiniButton("↑") { onMove(id, -1) }
+                        if (index < state.clipMenuOrder.lastIndex) MenuMiniButton("↓") { onMove(id, 1) }
+                        MenuMiniButton("✕") { onToggle(id) }
+                    }
+                }
+                if (state.clipMenuOrder.isEmpty()) {
+                    Text("Nothing enabled - the menu will be empty.", color = palette.muted, fontSize = 11.5.sp)
+                }
+
+                SectionHeader("AVAILABLE")
+                ClipMenuAction.entries.filter { it.id !in state.clipMenuOrder }.forEach { action ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(7.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = action.label,
+                            color = palette.muted,
+                            fontSize = 11.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MenuMiniButton("＋") { onToggle(action.id) }
+                    }
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                InspectorActionButton("Reset to defaults", modifier = Modifier.weight(1f), onClick = onReset)
+                InspectorActionButton("Done", isPrimary = true, modifier = Modifier.weight(1f), onClick = onDismiss)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MenuMiniButton(label: String, onClick: () -> Unit) {
+    val palette = LocalEditProPalette.current
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(28.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(palette.controlBg)
+            .clickable(role = Role.Button, onClick = onClick)
+    ) {
+        Text(label, color = palette.text, fontSize = 12.sp)
     }
 }
 

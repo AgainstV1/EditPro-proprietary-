@@ -15,6 +15,7 @@ import com.editpro.studio.model.AssetKind
 import com.editpro.studio.model.AudioGearPreset
 import com.editpro.studio.model.CameraRig
 import com.editpro.studio.model.ClipFilters
+import com.editpro.studio.model.ClipMenuAction
 import com.editpro.studio.model.EditorSnapshot
 import com.editpro.studio.model.EquipmentRigPreset
 import com.editpro.studio.model.ExportSettings
@@ -137,7 +138,10 @@ data class EditorUiState(
     val toastMessage: String? = null,
     val pendingConfirm: PendingConfirm? = null,
     val showHome: Boolean = true,
-    val recentProjects: List<RecentProject> = emptyList()
+    val recentProjects: List<RecentProject> = emptyList(),
+    /** Ordered ids of the clip context-menu entries the user has enabled. */
+    val clipMenuOrder: List<String> = ClipMenuAction.defaultOrder,
+    val showClipMenuModal: Boolean = false
 ) {
     val assetsById: Map<String, MediaAsset>
         get() = assets.associateBy { it.id }
@@ -200,6 +204,7 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
     init {
         loadPersistedPreferences()
         loadRecentProjects()
+        loadClipMenu()
         recoverAutosaveIfPresent()
     }
 
@@ -2055,5 +2060,47 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
             prefs.edit().putString("recent_projects", arr.toString()).apply()
         } catch (_: Exception) {
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // CLIP CONTEXT MENU (user-configurable)
+    // -------------------------------------------------------------------------
+    fun toggleClipMenuItem(id: String) {
+        val current = _uiState.value.clipMenuOrder
+        val next = if (id in current) current - id else current + id
+        _uiState.update { it.copy(clipMenuOrder = next) }
+        persistClipMenu(next)
+    }
+
+    fun moveClipMenuItem(id: String, delta: Int) {
+        val current = _uiState.value.clipMenuOrder.toMutableList()
+        val index = current.indexOf(id)
+        if (index < 0) return
+        val target = (index + delta).coerceIn(0, current.lastIndex)
+        if (target == index) return
+        current.removeAt(index)
+        current.add(target, id)
+        val next = current.toList()
+        _uiState.update { it.copy(clipMenuOrder = next) }
+        persistClipMenu(next)
+    }
+
+    fun resetClipMenu() {
+        val next = ClipMenuAction.defaultOrder
+        _uiState.update { it.copy(clipMenuOrder = next) }
+        persistClipMenu(next)
+        showToast("Clip menu reset to defaults")
+    }
+
+    fun setShowClipMenuModal(show: Boolean) = _uiState.update { it.copy(showClipMenuModal = show) }
+
+    private fun loadClipMenu() {
+        val raw = prefs.getString("clip_menu_order", null) ?: return
+        val ids = raw.split(",").map { it.trim() }.filter { ClipMenuAction.fromId(it) != null }
+        _uiState.update { it.copy(clipMenuOrder = ids) }
+    }
+
+    private fun persistClipMenu(order: List<String>) {
+        prefs.edit().putString("clip_menu_order", order.joinToString(",")).apply()
     }
 }
