@@ -4,12 +4,17 @@ Edit Pro Studio can expose the open project to an AI agent over the
 [Model Context Protocol](https://modelcontextprotocol.io), so the agent can read the timeline and
 make real edits instead of guessing at them.
 
-It is **off until you start it**, and it is **editing-only**: there is no export trigger and no
-timeline-wide clear, so an agent cannot destroy a project or start a long render.
+It is **editing-only**: there is no export trigger and no timeline-wide clear, so an agent cannot
+destroy a project or start a long render.
 
-## Turning it on
+## Always on
 
-**Tools → Agent access (MCP) → Start.**
+Agent access is **on by default** and stays on across launches, so you never have to flip a
+switch before asking an agent to do something. A foreground service keeps the socket reachable
+while you are in another app — which is the whole point, since the agent runs on the same tablet.
+
+Turn it off from **Tools → Agent access (MCP) → Stop** if you want it to stop listening. The
+choice is remembered.
 
 The panel shows:
 
@@ -43,8 +48,23 @@ The transport is MCP **Streamable HTTP**, POST-only: a request gets a plain `app
 response rather than an SSE stream. Servers and clients that require SSE streaming are not
 supported, which is the one compatibility limit to be aware of.
 
-There is also `GET /health`, which returns `{"status":"ok","server":"editpro-studio","tools":19}`
+There is also `GET /health`, which returns `{"status":"ok","server":"editpro-studio","tools":20}`
 and needs no token.
+
+### Testing without an agent
+
+The endpoint is plain JSON-RPC, so one `curl` proves the whole chain works:
+
+```bash
+curl -s http://127.0.0.1:8765/mcp \
+  -H "Authorization: Bearer YOUR-TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Swapping `tools/list` for
+`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_summary","arguments":{}}}`
+tells you whether tool dispatch works. Run it on the tablet itself, or over `adb shell`.
 
 ## Tools
 
@@ -55,6 +75,7 @@ and needs no token.
 | `list_media` | Media assets, with the ids `add_clip` needs. |
 | `list_clips` | Every clip: track, start/end, trim, transform, keyframe count. |
 | `list_look_presets` | Colour looks, for `apply_look`. |
+| `fetch_url` | **The browser.** Download an image, video or audio file from a direct URL into the media library, ready for `add_clip`. http/https, 250 MB, 60 s timeout. |
 | `add_clip` | Place an asset on a track at a time. Returns the clip id. |
 | `update_clip` | Change any property of one clip — position, trim, track, transform, volume, text, fades, full colour grade. Only the keys you pass change. |
 | `delete_clip` | Remove one clip. |
@@ -73,6 +94,8 @@ and needs no token.
 
 - **Export.** Starting a render is expensive and long-running; an agent should not do it silently.
 - **Timeline-wide clears.** Destructive and easy to trigger by accident.
+- **Web search.** The agent already knows how to find things; a search API would mean a key, a
+  provider and a rate limit. `fetch_url` takes a direct media link instead.
 - **`blur`, `hue`, `grain`.** These are stored by the model but not applied to the render (they are
   labelled "not rendered yet" in the inspector). Exposing them would let an agent set a value and
   see nothing happen, which is worse than not offering them.

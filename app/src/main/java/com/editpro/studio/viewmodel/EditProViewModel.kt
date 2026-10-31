@@ -2311,4 +2311,16 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
         if (playing && !isPlaying) togglePlayPause()
         if (!playing && isPlaying) pausePlayback()
     }
+
+    /** Adds an asset produced by a web fetch to the library, ready for add_clip. */
+    fun mcpAddFetchedAsset(asset: MediaAsset) {
+        _uiState.update { st ->
+            st.copy(
+                assets = st.assets + asset,
+                selectedAssetId = asset.id,
+                saveStatus = "Fetched ${asset.name}"
+            )
+        }
+        scheduleAutosave()
+    }
 }

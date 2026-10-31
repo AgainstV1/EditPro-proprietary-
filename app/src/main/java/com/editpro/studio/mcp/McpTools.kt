@@ -1,5 +1,7 @@
 package com.editpro.studio.mcp
 
+import android.app.Application
+import com.editpro.studio.media.WebAssetFetcher
 import com.editpro.studio.model.MediaAsset
 import com.editpro.studio.model.PresetCatalog
 import com.editpro.studio.model.TimelineClip
@@ -69,7 +71,11 @@ class McpTools(private val viewModel: EditProViewModel) {
         val spec = specs.firstOrNull { it.name == name }
             ?: return errorContent("Unknown tool '$name'. Call tools/list for the available tools.")
         return try {
-            val value = runBlocking(Dispatchers.Main) { spec.handler(args) }
+            val value = if (spec.onMain) {
+                runBlocking(Dispatchers.Main) { spec.handler(args) }
+            } else {
+                spec.handler(args)
+            }
             val text = if (value is String) value else value.toString()
             JSONObject()
                 .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", text)))
@@ -89,6 +95,8 @@ class McpTools(private val viewModel: EditProViewModel) {
         val name: String,
         val description: String,
         val schema: JSONObject,
+        /** Network tools must not run on the main thread; they are already on a worker thread. */
+        val onMain: Boolean = true,
         val handler: (JSONObject) -> Any
     )
 
@@ -181,6 +189,34 @@ class McpTools(private val viewModel: EditProViewModel) {
                 )
             }
             out
+        },
+
+        ToolSpec(
+            "fetch_url",
+            "Download an image, video or audio file from a URL straight into the media library and " +
+                "return its asset id, ready for add_clip. Direct media links only - not HTML pages. " +
+                "http/https, 250 MB limit, 60 s timeout.",
+            obj(
+                p("url", "string", "Direct link to an image, video or audio file."),
+                p("name", "string", "Optional filename to store it under.")
+            ),
+            onMain = false
+        ) { args ->
+            val url = args.optString("url", "").trim()
+            if (url.isEmpty()) throw IllegalArgumentException("url is required.")
+            val app = viewModel.getApplication<Application>()
+            val asset = runBlocking {
+                WebAssetFetcher.fetch(app, url, args.optString("name", "").ifEmpty { null })
+            }
+            if (asset != null) {
+                runBlocking(Dispatchers.Main) { viewModel.mcpAddFetchedAsset(asset) }
+            }
+            JSONObject()
+                .put("assetId", asset?.id ?: JSONObject.NULL)
+                .put("name", asset?.name ?: JSONObject.NULL)
+                .put("kind", asset?.kind?.id ?: JSONObject.NULL)
+                .put("durationSec", asset?.durationSec ?: JSONObject.NULL)
+                .put("sizeBytes", asset?.sizeBytes ?: JSONObject.NULL)
         },
 
         ToolSpec(

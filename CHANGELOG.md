@@ -2,6 +2,19 @@
 
 All notable changes to Edit Pro Studio (Android). Newest first.
 
+## 2.6.0 — unreleased
+
+### Changed
+- **Agent access is always on.** A foreground service keeps the MCP socket reachable while the
+  editor is off screen, which is when an agent on the same tablet needs it. The on/off choice is
+  persisted (default on) and no longer has to be flipped before every session.
+- The view model is now process-wide so the service and the UI act on the same project state.
+
+### Added
+- **`fetch_url` — the agent's browser.** Downloads an image, video or audio file from a direct URL
+  into the media library, with the same duration probe, filmstrip and waveform as a hand import,
+  so `add_clip` can use it immediately. http/https only, 250 MB cap, 60 s timeout.
+
 ## 2.5.0 — unreleased
 
 ### Added
