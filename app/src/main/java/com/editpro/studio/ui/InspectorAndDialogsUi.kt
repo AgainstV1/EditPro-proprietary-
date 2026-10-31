@@ -1510,8 +1510,9 @@ fun AgentAccessDialog(
         ) {
             Text("Agent access (MCP)", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text(
-                "A local MCP server so an AI agent can read and edit this project. " +
-                    "Editing only - it cannot export or clear the timeline.",
+                "A local MCP server so an AI agent can read and edit this project. It stays on in " +
+                    "the background until you turn it off. Editing only - it cannot export or clear " +
+                    "the timeline.",
                 color = palette.muted,
                 fontSize = 11.5.sp
             )

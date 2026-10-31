@@ -83,6 +83,8 @@ import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.editpro.studio.mcp.AgentHost
+import com.editpro.studio.mcp.McpService
 import com.editpro.studio.model.AssetKind
 import com.editpro.studio.model.MediaAsset
 import com.editpro.studio.model.ProjectSerializer
@@ -117,10 +119,15 @@ import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: EditProViewModel by viewModels()
+    // Process-wide, so the always-on MCP service and this UI act on the same project state.
+    private val viewModel: EditProViewModel by lazy { AgentHost.ensure(application) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Agent access is on by default: bring the keep-alive service up with the editor.
+        if (viewModel.uiState.value.mcpAutoStart) {
+            runCatching { McpService.start(this) }
+        }
         setContent {
             val state by viewModel.uiState.collectAsState()
             EditProStudioTheme(isLight = state.isLightTheme) {
@@ -641,8 +648,8 @@ fun EditProWorkspaceScreen(
         if (showAgentAccess) {
             AgentAccessDialog(
                 state = state,
-                onStart = { viewModel.startMcpServer() },
-                onStop = { viewModel.stopMcpServer() },
+                onStart = { viewModel.setAgentAccessEnabled(true) },
+                onStop = { viewModel.setAgentAccessEnabled(false) },
                 onRegenerate = { viewModel.regenerateMcpToken() },
                 onDismiss = { showAgentAccess = false }
             )

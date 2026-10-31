@@ -12,6 +12,7 @@ import com.editpro.studio.media.MediaEngine
 import com.editpro.studio.media.NativeVideoExporter
 import com.editpro.studio.media.PreviewAudioEngine
 import com.editpro.studio.mcp.McpServer
+import com.editpro.studio.mcp.McpService
 import com.editpro.studio.mcp.McpTools
 import com.editpro.studio.model.AssetKind
 import com.editpro.studio.model.AudioGearPreset
@@ -151,7 +152,9 @@ data class EditorUiState(
     val mcpRunning: Boolean = false,
     val mcpPort: Int = 8765,
     val mcpToken: String = "",
-    val mcpLog: List<String> = emptyList()
+    val mcpLog: List<String> = emptyList(),
+    /** Agent access stays on across launches unless the user turns it off. */
+    val mcpAutoStart: Boolean = true
 ) {
     val assetsById: Map<String, MediaAsset>
         get() = assets.associateBy { it.id }
@@ -2155,6 +2158,23 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
         mcpServer?.stop()
         mcpServer = null
         _uiState.update { it.copy(mcpRunning = false) }
+        runCatching { McpService.stop(getApplication()) }
+    }
+
+    /**
+     * Turns agent access on or off for good: the choice is persisted and, when on, a foreground
+     * service keeps the socket reachable while the editor is off screen.
+     */
+    fun setAgentAccessEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("mcp_auto_start", enabled).apply()
+        _uiState.update { it.copy(mcpAutoStart = enabled) }
+        val app = getApplication<Application>()
+        if (enabled) {
+            runCatching { McpService.start(app) }
+            startMcpServer()
+        } else {
+            stopMcpServer()
+        }
     }
 
     fun regenerateMcpToken() {
@@ -2172,7 +2192,8 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
         val stored = prefs.getString("mcp_token", null)
         val token = stored?.takeIf { it.isNotBlank() } ?: generateMcpToken()
         if (stored != token) prefs.edit().putString("mcp_token", token).apply()
-        _uiState.update { it.copy(mcpToken = token) }
+        val autoStart = prefs.getBoolean("mcp_auto_start", true)
+        _uiState.update { it.copy(mcpToken = token, mcpAutoStart = autoStart) }
     }
 
     private fun generateMcpToken(): String {
