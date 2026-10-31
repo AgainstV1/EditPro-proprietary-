@@ -2,6 +2,15 @@
 
 All notable changes to Edit Pro Studio (Android). Newest first.
 
+## 2.5.0 — unreleased
+
+### Added
+- **Agent access over MCP.** The app can host a local Model Context Protocol server so an AI agent
+  can read and edit the open project. Off by default; start it from *Tools → Agent access (MCP)*.
+  Bound to 127.0.0.1, bearer-token auth, 19 editing tools. See [docs/MCP.md](docs/MCP.md).
+- Agent edits run through the same view-model operations as the UI, so they are undoable and
+  indistinguishable from hand edits. No export trigger and no timeline-wide clear by design.
+
 ## 2.4.0 — unreleased
 
 ### Changed

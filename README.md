@@ -120,6 +120,7 @@ Actively used, but early. Worth knowing before relying on it:
 ## Documentation
 
 - [CHANGELOG.md](CHANGELOG.md) — what changed in each version
+- [docs/MCP.md](docs/MCP.md) — letting an AI agent read and edit the project over MCP
 - [docs/MAINTENANCE.md](docs/MAINTENANCE.md) — verification notes, manual test checklist,
   preview-versus-export behaviour, and known gaps
 
