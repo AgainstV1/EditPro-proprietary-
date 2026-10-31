@@ -90,6 +90,7 @@ import com.editpro.studio.model.TimelineTrack
 import com.editpro.studio.model.WorkspaceMode
 import com.editpro.studio.model.formatFileSize
 import com.editpro.studio.model.formatTimecode
+import com.editpro.studio.ui.AgentAccessDialog
 import com.editpro.studio.ui.AlertSheetDialog
 import com.editpro.studio.ui.ClipMenuSettingsDialog
 import com.editpro.studio.ui.ConfirmDialog
@@ -152,6 +153,7 @@ fun EditProWorkspaceScreen(
     var dragAsset by remember { mutableStateOf<MediaAsset?>(null) }
     var dragPosition by remember { mutableStateOf(Offset.Zero) }
     var timelineGeometry by remember { mutableStateOf<TimelineDropGeometry?>(null) }
+    var showAgentAccess by remember { mutableStateOf(false) }
 
     // Native Android Storage Access Framework Launchers
     val mediaPickerLauncher = rememberLauncherForActivityResult(
@@ -298,7 +300,7 @@ fun EditProWorkspaceScreen(
     // root now takes focus itself and reclaims it whenever a dialog closes.
     val rootFocus = remember { FocusRequester() }
     val anyDialogOpen = state.showExportModal || state.showToolsModal || state.showSolidModal ||
-        state.showPresetsModal || state.showShortcutsModal || state.showClipMenuModal ||
+        state.showPresetsModal || state.showShortcutsModal || state.showClipMenuModal || showAgentAccess ||
         state.pendingConfirm != null || state.alertTitle != null
     LaunchedEffect(state.showHome, anyDialogOpen) {
         if (!state.showHome && !anyDialogOpen) {
@@ -617,7 +619,8 @@ fun EditProWorkspaceScreen(
                 onOpenShortcuts = { viewModel.setShowShortcutsModal(true) },
                 onToggleFullscreen = toggleFullscreen,
                 onOpenClipMenu = { viewModel.setShowClipMenuModal(true) },
-                onToggleScrubFollow = viewModel::toggleScrubFollow
+                onToggleScrubFollow = viewModel::toggleScrubFollow,
+                onOpenAgentAccess = { showAgentAccess = true }
             )
         }
 
@@ -632,6 +635,16 @@ fun EditProWorkspaceScreen(
                 onMove = viewModel::moveClipMenuItem,
                 onReset = viewModel::resetClipMenu,
                 onDismiss = { viewModel.setShowClipMenuModal(false) }
+            )
+        }
+
+        if (showAgentAccess) {
+            AgentAccessDialog(
+                state = state,
+                onStart = { viewModel.startMcpServer() },
+                onStop = { viewModel.stopMcpServer() },
+                onRegenerate = { viewModel.regenerateMcpToken() },
+                onDismiss = { showAgentAccess = false }
             )
         }
 

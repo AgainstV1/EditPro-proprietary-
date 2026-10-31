@@ -51,6 +51,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.window.Dialog
 import com.editpro.studio.model.CameraRig
 import com.editpro.studio.model.ClipFilters
@@ -1094,7 +1096,8 @@ fun EditingToolsDialog(
     onOpenShortcuts: () -> Unit,
     onToggleFullscreen: () -> Unit,
     onOpenClipMenu: () -> Unit,
-    onToggleScrubFollow: () -> Unit
+    onToggleScrubFollow: () -> Unit,
+    onOpenAgentAccess: () -> Unit
 ) {
     val palette = LocalEditProPalette.current
     Dialog(onDismissRequest = onDismiss) {
@@ -1129,6 +1132,9 @@ fun EditingToolsDialog(
                 if (state.scrubFollow) "Playhead follows cursor: On (Alt+F)"
                 else "Playhead follows cursor: Off (Alt+F)"
             ) { onToggleScrubFollow() }
+            InspectorActionButton(
+                if (state.mcpRunning) "Agent access (MCP): running" else "Agent access (MCP)"
+            ) { onDismiss(); onOpenAgentAccess() }
             InspectorActionButton("＋ Add solid colour clip") { onDismiss(); onOpenSolidModal() }
             InspectorActionButton("Import subtitles (SRT)") { onDismiss(); onImportSrtClick() }
             InspectorActionButton("Add marker at playhead") { onDismiss(); onAddMarker() }
@@ -1472,6 +1478,114 @@ private fun MenuMiniButton(label: String, onClick: () -> Unit) {
             .clickable(role = Role.Button, onClick = onClick)
     ) {
         Text(label, color = palette.text, fontSize = 12.sp)
+    }
+}
+
+/**
+ * Agent access (MCP): shows the local endpoint and pairing token an AI agent needs, and lets the
+ * user start or stop the server. Nothing listens until Start is pressed.
+ */
+@Composable
+fun AgentAccessDialog(
+    state: EditorUiState,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    onRegenerate: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = LocalEditProPalette.current
+    val clipboard = LocalClipboardManager.current
+    val endpoint = "http://127.0.0.1:${state.mcpPort}/mcp"
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .widthIn(max = 420.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(palette.panel)
+                .border(0.5.dp, palette.line, RoundedCornerShape(16.dp))
+                .padding(18.dp)
+        ) {
+            Text("Agent access (MCP)", color = palette.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "A local MCP server so an AI agent can read and edit this project. " +
+                    "Editing only - it cannot export or clear the timeline.",
+                color = palette.muted,
+                fontSize = 11.5.sp
+            )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(RoundedCornerShape(99.dp))
+                        .background(if (state.mcpRunning) palette.green else palette.muted)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    if (state.mcpRunning) "Running" else "Stopped",
+                    color = if (state.mcpRunning) palette.green else palette.muted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            SectionHeader("ENDPOINT")
+            Text(endpoint, color = palette.text, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+
+            SectionHeader("PAIRING TOKEN")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = state.mcpToken.ifBlank { "-" },
+                    color = palette.accent,
+                    fontSize = 15.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f)
+                )
+                InspectorActionButton("Copy", modifier = Modifier.width(84.dp)) {
+                    clipboard.setText(AnnotatedString(state.mcpToken))
+                }
+            }
+            Text(
+                "Send it as  Authorization: Bearer <token>  or  ?token=<token>",
+                color = palette.muted,
+                fontSize = 10.5.sp
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                if (state.mcpRunning) {
+                    InspectorActionButton("Stop", modifier = Modifier.weight(1f), onClick = onStop)
+                } else {
+                    InspectorActionButton("Start", isPrimary = true, modifier = Modifier.weight(1f), onClick = onStart)
+                }
+                InspectorActionButton("New token", modifier = Modifier.weight(1f), onClick = onRegenerate)
+            }
+
+            if (state.mcpLog.isNotEmpty()) {
+                SectionHeader("RECENT ACTIVITY")
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 120.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    state.mcpLog.forEach { line ->
+                        Text(
+                            text = line,
+                            color = palette.muted,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 2
+                        )
+                    }
+                }
+            }
+
+            InspectorActionButton("Done", onClick = onDismiss)
+        }
     }
 }
 

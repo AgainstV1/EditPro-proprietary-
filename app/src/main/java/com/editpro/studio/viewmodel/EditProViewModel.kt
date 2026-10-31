@@ -11,6 +11,8 @@ import com.editpro.studio.media.GalleryPublisher
 import com.editpro.studio.media.MediaEngine
 import com.editpro.studio.media.NativeVideoExporter
 import com.editpro.studio.media.PreviewAudioEngine
+import com.editpro.studio.mcp.McpServer
+import com.editpro.studio.mcp.McpTools
 import com.editpro.studio.model.AssetKind
 import com.editpro.studio.model.AudioGearPreset
 import com.editpro.studio.model.CameraRig
@@ -143,7 +145,13 @@ data class EditorUiState(
     val clipMenuOrder: List<String> = ClipMenuAction.defaultOrder,
     val showClipMenuModal: Boolean = false,
     /** When on, moving the mouse over the timeline moves the playhead (Alt+F). */
-    val scrubFollow: Boolean = false
+    val scrubFollow: Boolean = false,
+
+    // Agent access (MCP). Off until the user starts it.
+    val mcpRunning: Boolean = false,
+    val mcpPort: Int = 8765,
+    val mcpToken: String = "",
+    val mcpLog: List<String> = emptyList()
 ) {
     val assetsById: Map<String, MediaAsset>
         get() = assets.associateBy { it.id }
@@ -202,11 +210,13 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
     private var autosaveJob: Job? = null
     private var exportJob: Job? = null
     private val previewAudio = PreviewAudioEngine()
+    private var mcpServer: McpServer? = null
 
     init {
         loadPersistedPreferences()
         loadRecentProjects()
         loadClipMenu()
+        loadMcpToken()
         recoverAutosaveIfPresent()
     }
 
@@ -1999,6 +2009,8 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         previewAudio.stop()
+        mcpServer?.stop()
+        mcpServer = null
         super.onCleared()
     }
 
@@ -2113,5 +2125,169 @@ class EditProViewModel(application: Application) : AndroidViewModel(application)
 
     private fun persistClipMenu(order: List<String>) {
         prefs.edit().putString("clip_menu_order", order.joinToString(",")).apply()
+    }
+
+    // -------------------------------------------------------------------------
+    // AGENT ACCESS (MCP)
+    // -------------------------------------------------------------------------
+    fun startMcpServer(): Boolean {
+        if (_uiState.value.mcpRunning) return true
+        val token = _uiState.value.mcpToken.ifBlank { generateMcpToken() }
+        val server = McpServer(
+            port = _uiState.value.mcpPort,
+            token = token,
+            tools = McpTools(this),
+            onLog = { message -> appendMcpLog(message) }
+        )
+        val started = server.start()
+        if (started) {
+            mcpServer = server
+            prefs.edit().putString("mcp_token", token).apply()
+            _uiState.update { it.copy(mcpRunning = true, mcpToken = token) }
+            appendMcpLog("Agent access on \u00b7 http://127.0.0.1:${_uiState.value.mcpPort}/mcp")
+        } else {
+            appendMcpLog("Could not start on port ${_uiState.value.mcpPort}")
+        }
+        return started
+    }
+
+    fun stopMcpServer() {
+        mcpServer?.stop()
+        mcpServer = null
+        _uiState.update { it.copy(mcpRunning = false) }
+    }
+
+    fun regenerateMcpToken() {
+        val token = generateMcpToken()
+        prefs.edit().putString("mcp_token", token).apply()
+        _uiState.update { it.copy(mcpToken = token) }
+        if (_uiState.value.mcpRunning) {
+            stopMcpServer()
+            startMcpServer()
+        }
+        showToast("New pairing token generated")
+    }
+
+    private fun loadMcpToken() {
+        val stored = prefs.getString("mcp_token", null)
+        val token = stored?.takeIf { it.isNotBlank() } ?: generateMcpToken()
+        if (stored != token) prefs.edit().putString("mcp_token", token).apply()
+        _uiState.update { it.copy(mcpToken = token) }
+    }
+
+    private fun generateMcpToken(): String {
+        val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toList()
+        return (1..8).map { chars.random() }.joinToString("")
+    }
+
+    private fun appendMcpLog(message: String) {
+        val stamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date())
+        _uiState.update { it.copy(mcpLog = (listOf("$stamp  $message") + it.mcpLog).take(40)) }
+    }
+
+    // --- clip operations the MCP tools drive. All go through snapHistory, so they are undoable. ---
+    fun mcpAddClip(
+        assetId: String,
+        trackKey: String?,
+        startSec: Double?,
+        trimIn: Double?,
+        trimOut: Double?
+    ): String? {
+        val state = _uiState.value
+        val asset = state.assetsById[assetId] ?: return null
+        val track = trackKey?.let { key -> TimelineTrack.entries.find { it.key == key } }
+        val before = state.clips.map { it.id }.toSet()
+        addAssetToTimeline(asset, track, startSec)
+        val created = _uiState.value.clips.lastOrNull { it.id !in before } ?: return null
+        if (trimIn != null || trimOut != null) {
+            _uiState.update { st ->
+                st.copy(
+                    clips = st.clips.map {
+                        if (it.id == created.id) {
+                            it.copy(trimIn = trimIn ?: it.trimIn, trimOut = trimOut ?: it.trimOut)
+                        } else it
+                    }
+                )
+            }
+            recalcAndSync()
+        }
+        return created.id
+    }
+
+    fun mcpUpdateClip(clipId: String, apply: (TimelineClip) -> TimelineClip): Boolean {
+        if (_uiState.value.clips.none { it.id == clipId }) return false
+        snapHistory()
+        _uiState.update { st ->
+            st.copy(clips = st.clips.map { if (it.id == clipId) apply(it) else it })
+        }
+        recalcAndSync()
+        return true
+    }
+
+    fun mcpDeleteClip(clipId: String): Boolean {
+        if (_uiState.value.clips.none { it.id == clipId }) return false
+        snapHistory()
+        _uiState.update { st ->
+            st.copy(
+                clips = st.clips.filterNot { it.id == clipId },
+                selectedClipId = if (st.selectedClipId == clipId) null else st.selectedClipId,
+                selectedClipIds = st.selectedClipIds - clipId
+            )
+        }
+        recalcAndSync("Clip deleted")
+        return true
+    }
+
+    fun mcpSplitClip(clipId: String, atSec: Double): Boolean {
+        if (_uiState.value.clips.none { it.id == clipId }) return false
+        selectClip(clipId, false)
+        seekTo(atSec)
+        splitAtPlayhead()
+        return true
+    }
+
+    fun mcpApplyLook(clipId: String, presetId: String): Boolean {
+        val preset = PresetCatalog.lookPresets.find { it.id == presetId } ?: return false
+        if (_uiState.value.clips.none { it.id == clipId }) return false
+        selectClip(clipId, false)
+        applyLookPreset(preset)
+        return true
+    }
+
+    fun mcpAddKeyframe(clipId: String, timeSec: Double): Boolean {
+        if (_uiState.value.clips.none { it.id == clipId }) return false
+        selectClip(clipId, false)
+        seekTo(timeSec)
+        addOrUpdateKeyframeAtPlayhead()
+        return true
+    }
+
+    fun mcpSetTrackState(
+        trackKey: String,
+        muted: Boolean?,
+        hidden: Boolean?,
+        solo: Boolean?,
+        locked: Boolean?
+    ): Boolean {
+        val track = TimelineTrack.entries.find { it.key == trackKey } ?: return false
+        _uiState.update { st ->
+            val current = st.trackStates[track] ?: TrackState()
+            st.copy(
+                trackStates = st.trackStates + (track to current.copy(
+                    muted = muted ?: current.muted,
+                    hidden = hidden ?: current.hidden,
+                    solo = solo ?: current.solo,
+                    locked = locked ?: current.locked
+                ))
+            )
+        }
+        return true
+    }
+
+    fun mcpSetPlayback(playing: Boolean) {
+        val isPlaying = _uiState.value.isPlaying
+        if (playing && !isPlaying) togglePlayPause()
+        if (!playing && isPlaying) pausePlayback()
     }
 }
